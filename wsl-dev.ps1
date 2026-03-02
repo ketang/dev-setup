@@ -12,6 +12,10 @@
     create it. Per-instance settings (SSH port) are in the
     Instances map.
 
+    Resilient to failures: if provisioning fails partway (bad
+    passphrase, network error, etc.), re-running the script
+    detects the existing instance and re-provisions it.
+
 .EXAMPLE
     .\wsl-dev.ps1                              # Create default "dev" instance
     .\wsl-dev.ps1 -Name dev-2                  # Create a second instance
@@ -144,65 +148,83 @@ function Get-InstanceConfig {
     return [PSCustomObject]@{ SSHPort = $basePort + $existing }
 }
 
+function Write-Utf8NoBom {
+    param([string]$Path, [string]$Content)
+    [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
+}
+
+# ---------------------------------------------------------------------------
+# Check if a WSL2 instance exists (registered)
+# ---------------------------------------------------------------------------
+
+function Test-WslInstance {
+    param([string]$InstanceName)
+    $list = wsl --list --quiet 2>$null
+    return ($list | Where-Object { $_ -match "^${InstanceName}$" }) -ne $null
+}
+
 # ---------------------------------------------------------------------------
 # Create
 # ---------------------------------------------------------------------------
 
 function Invoke-Create {
-    $instancePath = "$instanceRoot\$Name"
-    if (Test-Path $instancePath) {
-        Write-Error "Instance '$Name' already exists at $instancePath. Destroy it first."
-        exit 1
-    }
-
     $config = Get-DevConfig
     $inst = Get-InstanceConfig -Config $config -InstanceName $Name
     $sshPort = $inst.SSHPort
-
-    # Get base tarball from the official Store image (cached after first run)
-    New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
-    $tarball = "$cacheDir\ubuntu-noble.tar.gz"
-    if (-not (Test-Path $tarball)) {
-        Write-Host "Creating base image from official Ubuntu Store distro..."
-
-        # Check if the Store distro is already installed
-        $installed = wsl --list --quiet 2>$null | Where-Object { $_ -match "^$baseName$" }
-        if (-not $installed) {
-            Write-Host "  Installing $baseName from Microsoft Store..."
-            wsl --install $baseName --no-launch
-            if ($LASTEXITCODE -ne 0) { throw "wsl --install $baseName failed" }
-        }
-
-        Write-Host "  Exporting to tarball (this takes a minute)..."
-        wsl --export $baseName $tarball
-        if ($LASTEXITCODE -ne 0) { throw "wsl --export failed" }
-
-        Write-Host "  Removing temporary Store distro..."
-        wsl --unregister $baseName
-        Write-Host "  Base image cached at $tarball"
-    } else {
-        Write-Host "Using cached base image."
-    }
-
-    # Create instance
-    Write-Host "`nCreating WSL2 instance '$Name'..."
-    New-Item -ItemType Directory -Path $instancePath -Force | Out-Null
-    wsl --import $Name $instancePath $tarball --version 2
-    if ($LASTEXITCODE -ne 0) { throw "wsl --import failed" }
-
-    $user      = $config.User
+    $user = $config.User
     $setupRepo = $config.SetupRepo
 
-    # Write SSH keys and provisioning script to a staging dir on the Windows
-    # filesystem, then copy them into the instance. This avoids fragile
-    # heredoc quoting when keys/JSON contain special characters.
+    # --- Step 1: Ensure WSL2 instance exists ---
+    if (Test-WslInstance $Name) {
+        Write-Host "Instance '$Name' already exists. Re-provisioning..."
+    } else {
+        # Get base tarball from the official Store image (cached after first run)
+        New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+        $tarball = "$cacheDir\ubuntu-noble.tar.gz"
+        if (-not (Test-Path $tarball)) {
+            Write-Host "Creating base image from official Ubuntu Store distro..."
+
+            $installed = wsl --list --quiet 2>$null | Where-Object { $_ -match "^$baseName$" }
+            if (-not $installed) {
+                Write-Host "  Installing $baseName from Microsoft Store..."
+                wsl --install $baseName --no-launch
+                if ($LASTEXITCODE -ne 0) { throw "wsl --install $baseName failed" }
+            }
+
+            Write-Host "  Exporting to tarball (this takes a minute)..."
+            wsl --export $baseName $tarball
+            if ($LASTEXITCODE -ne 0) { throw "wsl --export failed" }
+
+            Write-Host "  Removing temporary Store distro..."
+            wsl --unregister $baseName
+            Write-Host "  Base image cached at $tarball"
+        } else {
+            Write-Host "Using cached base image."
+        }
+
+        $instancePath = "$instanceRoot\$Name"
+        Write-Host "`nCreating WSL2 instance '$Name'..."
+        New-Item -ItemType Directory -Path $instancePath -Force | Out-Null
+        wsl --import $Name $instancePath $tarball --version 2
+        if ($LASTEXITCODE -ne 0) { throw "wsl --import failed" }
+
+        # Create user and enable systemd
+        Write-Host "Configuring user and systemd..."
+        wsl -d $Name --exec bash -c "set -euo pipefail; useradd -m -s /bin/bash -G sudo $user 2>/dev/null || true; echo '$user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user; printf '[boot]\nsystemd=true\n[user]\ndefault=$user\n' > /etc/wsl.conf"
+
+        # Restart to activate systemd + default user
+        Write-Host "Restarting instance for systemd..."
+        wsl --terminate $Name
+        Start-Sleep -Seconds 3
+    }
+
+    # --- Step 2: Stage files ---
     $stageDir = "$instanceRoot\.stage"
     New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
 
     Copy-Item $config.SSHKeyPath "$stageDir\id_ed25519"
     Copy-Item "$($config.SSHKeyPath).pub" "$stageDir\id_ed25519.pub"
 
-    # Write Ansible extra-vars as a JSON file
     $extraVars = [ordered]@{
         user      = $user
         git_name  = $config.GitName
@@ -210,54 +232,84 @@ function Invoke-Create {
         ssh_port  = $sshPort
         repos     = @($config.Repos | ForEach-Object { $_ })
     }
-    $json = $extraVars | ConvertTo-Json -Depth 5
-    [IO.File]::WriteAllText("$stageDir\extra-vars.json", $json, [Text.UTF8Encoding]::new($false))
+    Write-Utf8NoBom "$stageDir\extra-vars.json" ($extraVars | ConvertTo-Json -Depth 5)
 
-    # Write the provisioning script
-    @"
+    # The provision script uses ssh-agent so passphrase-protected keys work.
+    # ssh-add prompts interactively; if it fails the script exits cleanly
+    # and the user can re-run.
+    $provisionScript = @"
 #!/bin/bash
 set -euo pipefail
 
 USER_NAME="$user"
 SETUP_REPO="$setupRepo"
+HOME_DIR="/home/`$USER_NAME"
 
 # --- SSH keys ---
 echo '=== Installing SSH keys ==='
-sudo -u `$USER_NAME mkdir -p /home/`$USER_NAME/.ssh
-sudo -u `$USER_NAME chmod 700 /home/`$USER_NAME/.ssh
+sudo -u `$USER_NAME mkdir -p `$HOME_DIR/.ssh
+sudo -u `$USER_NAME chmod 700 `$HOME_DIR/.ssh
 
-cp /tmp/stage/id_ed25519     /home/`$USER_NAME/.ssh/id_ed25519
-cp /tmp/stage/id_ed25519.pub /home/`$USER_NAME/.ssh/id_ed25519.pub
-cp /tmp/stage/id_ed25519.pub /home/`$USER_NAME/.ssh/authorized_keys
+cp /tmp/stage/id_ed25519     `$HOME_DIR/.ssh/id_ed25519
+cp /tmp/stage/id_ed25519.pub `$HOME_DIR/.ssh/id_ed25519.pub
+cp /tmp/stage/id_ed25519.pub `$HOME_DIR/.ssh/authorized_keys
 
-chown `$USER_NAME:`$USER_NAME /home/`$USER_NAME/.ssh/*
-chmod 600 /home/`$USER_NAME/.ssh/id_ed25519
-chmod 644 /home/`$USER_NAME/.ssh/id_ed25519.pub /home/`$USER_NAME/.ssh/authorized_keys
+chown `$USER_NAME:`$USER_NAME `$HOME_DIR/.ssh/*
+chmod 600 `$HOME_DIR/.ssh/id_ed25519
+chmod 644 `$HOME_DIR/.ssh/id_ed25519.pub `$HOME_DIR/.ssh/authorized_keys
 
-sudo -u `$USER_NAME ssh-keyscan github.com >> /home/`$USER_NAME/.ssh/known_hosts 2>/dev/null
+sudo -u `$USER_NAME ssh-keyscan github.com >> `$HOME_DIR/.ssh/known_hosts 2>/dev/null
+
+# --- Verify SSH key works with GitHub ---
+echo '=== Verifying SSH key with GitHub ==='
+echo 'You may be prompted for your SSH key passphrase.'
+echo ''
+
+# Start ssh-agent and add the key (prompts for passphrase if needed)
+eval "`$(sudo -u `$USER_NAME ssh-agent -s)"
+sudo -u `$USER_NAME SSH_AUTH_SOCK="`$SSH_AUTH_SOCK" ssh-add `$HOME_DIR/.ssh/id_ed25519
+
+# Test the connection
+if ! sudo -u `$USER_NAME SSH_AUTH_SOCK="`$SSH_AUTH_SOCK" ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+    echo ''
+    echo 'ERROR: SSH authentication to GitHub failed.'
+    echo 'Check that your SSH key is added to your GitHub account.'
+    echo 'Re-run this script to try again.'
+    kill `$SSH_AGENT_PID 2>/dev/null
+    exit 1
+fi
+echo '  GitHub SSH authentication successful.'
 
 # --- Ansible ---
+echo ''
 echo '=== Installing git and Ansible ==='
 apt-get update -qq
 apt-get install -y -qq git software-properties-common > /dev/null
 add-apt-repository --yes --update ppa:ansible/ansible > /dev/null 2>&1
 apt-get install -y -qq ansible > /dev/null
 
+# --- Clone dev-setup repo ---
 echo '=== Cloning dev-setup repo ==='
-if [ -d /home/`$USER_NAME/dev-setup ]; then
+if [ -d `$HOME_DIR/dev-setup ]; then
     echo '  Repo exists, pulling latest...'
-    cd /home/`$USER_NAME/dev-setup
-    sudo -u `$USER_NAME git pull --ff-only
+    cd `$HOME_DIR/dev-setup
+    sudo -u `$USER_NAME SSH_AUTH_SOCK="`$SSH_AUTH_SOCK" git pull --ff-only
 else
     echo "  Cloning `$SETUP_REPO ..."
-    sudo -u `$USER_NAME git clone --depth 1 "`$SETUP_REPO" /home/`$USER_NAME/dev-setup
+    sudo -u `$USER_NAME SSH_AUTH_SOCK="`$SSH_AUTH_SOCK" git clone --depth 1 "`$SETUP_REPO" `$HOME_DIR/dev-setup
 fi
 
+# --- Run Ansible ---
 echo '=== Running Ansible playbook ==='
-cd /home/`$USER_NAME/dev-setup
+
+# Export SSH_AUTH_SOCK so Ansible's git module can use it for cloning repos
+export SSH_AUTH_SOCK
+
+cd `$HOME_DIR/dev-setup
 ansible-playbook playbook.yml --diff -e @/tmp/stage/extra-vars.json
 
 # --- Cleanup ---
+kill `$SSH_AGENT_PID 2>/dev/null
 rm -rf /tmp/stage
 
 echo ''
@@ -268,28 +320,29 @@ echo ''
 echo 'Remaining manual steps:'
 echo '  1. netbird up         (authenticate to mesh VPN)'
 echo ''
-"@ | ForEach-Object { [IO.File]::WriteAllText("$stageDir\provision.sh", $_, [Text.UTF8Encoding]::new($false)) }
+"@
+    Write-Utf8NoBom "$stageDir\provision.sh" $provisionScript
 
-    # Initial setup: create user and enable systemd
-    Write-Host "Configuring user and systemd..."
-    wsl -d $Name --exec bash -c "set -euo pipefail; useradd -m -s /bin/bash -G sudo $user 2>/dev/null || true; echo '$user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user; printf '[boot]\nsystemd=true\n[user]\ndefault=$user\n' > /etc/wsl.conf"
-
-    # Restart to activate systemd + default user
-    Write-Host "Restarting instance for systemd..."
-    wsl --terminate $Name
-    Start-Sleep -Seconds 3
-
-    # Copy staging files into the instance and run provisioning
+    # --- Step 3: Copy staging files in and run provisioning ---
     Write-Host "`nProvisioning (this takes a few minutes)..."
 
-    # Convert Windows path to WSL path for the stage dir
     $wslStageDir = wsl -d $Name --exec wslpath -a "$stageDir"
-    wsl -d $Name --exec bash -c "cp -r $wslStageDir /tmp/stage && chmod +x /tmp/stage/provision.sh && sudo /tmp/stage/provision.sh"
+    wsl -d $Name --exec bash -c "cp -r $wslStageDir /tmp/stage && chmod +x /tmp/stage/provision.sh && sudo -E /tmp/stage/provision.sh"
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "Provisioning failed. The instance '$Name' still exists."
+        Write-Host "Fix the issue and re-run this script to retry."
+        Write-Host "  Or destroy it:  .\wsl-dev.ps1 -Action destroy -Name $Name"
+        # Clean up staging dir
+        Remove-Item -Recurse -Force $stageDir -ErrorAction SilentlyContinue
+        exit 1
+    }
 
     # Clean up staging dir on Windows side
-    Remove-Item -Recurse -Force $stageDir
+    Remove-Item -Recurse -Force $stageDir -ErrorAction SilentlyContinue
 
-    # Set up Windows port forwarding for SSH (requires admin, non-fatal if it fails)
+    # --- Step 4: Port forwarding (non-fatal) ---
     Write-Host "`nSetting up SSH port forwarding (port $sshPort)..."
     try {
         netsh interface portproxy delete v4tov4 listenport=$sshPort listenaddress=0.0.0.0 2>$null

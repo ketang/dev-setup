@@ -35,6 +35,8 @@
 
 - name: Clone project repos
   become_user: "{{ user }}"
+  environment:
+    SSH_AUTH_SOCK: "{{ lookup('env', 'SSH_AUTH_SOCK') }}"
   git:
     repo: "{{ item }}"
     dest: "/home/{{ user }}/project/{{ item | regex_replace('.*[:/]([^/]+)\\.git$', '\\1') }}"
