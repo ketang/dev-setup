@@ -190,77 +190,75 @@ function Invoke-Create {
     wsl --import $Name $instancePath $tarball --version 2
     if ($LASTEXITCODE -ne 0) { throw "wsl --import failed" }
 
-    # Read SSH keys from host
-    $sshPrivKey = (Get-Content $config.SSHKeyPath -Raw) -replace "'", "'\''"
-    $sshPubKey  = (Get-Content "$($config.SSHKeyPath).pub" -Raw).Trim()
-
     $user      = $config.User
     $setupRepo = $config.SetupRepo
 
-    # Initial setup: user, systemd, SSH key
-    Write-Host "Configuring user and systemd..."
-    wsl -d $Name --exec bash -c @"
+    # Write SSH keys and provisioning script to a staging dir on the Windows
+    # filesystem, then copy them into the instance. This avoids fragile
+    # heredoc quoting when keys/JSON contain special characters.
+    $stageDir = "$instanceRoot\.stage"
+    New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
+
+    Copy-Item $config.SSHKeyPath "$stageDir\id_ed25519"
+    Copy-Item "$($config.SSHKeyPath).pub" "$stageDir\id_ed25519.pub"
+
+    # Write Ansible extra-vars as a JSON file
+    $extraVars = [ordered]@{
+        user      = $user
+        git_name  = $config.GitName
+        git_email = $config.GitEmail
+        ssh_port  = $sshPort
+        repos     = @($config.Repos | ForEach-Object { $_ })
+    }
+    $json = $extraVars | ConvertTo-Json -Depth 5
+    [IO.File]::WriteAllText("$stageDir\extra-vars.json", $json, [Text.UTF8Encoding]::new($false))
+
+    # Write the provisioning script
+    @"
+#!/bin/bash
 set -euo pipefail
 
-# Create user
-useradd -m -s /bin/bash -G sudo $user 2>/dev/null || true
-echo '$user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$user
-chmod 440 /etc/sudoers.d/$user
+USER_NAME="$user"
+SETUP_REPO="$setupRepo"
 
-# Enable systemd, set default user
-cat > /etc/wsl.conf << 'CONF'
-[boot]
-systemd=true
-[user]
-default=$user
-CONF
+# --- SSH keys ---
+echo '=== Installing SSH keys ==='
+sudo -u `$USER_NAME mkdir -p /home/`$USER_NAME/.ssh
+sudo -u `$USER_NAME chmod 700 /home/`$USER_NAME/.ssh
 
-# Install SSH keypair
-su -l $user -c '
-mkdir -p ~/.ssh && chmod 700 ~/.ssh
-cat > ~/.ssh/id_ed25519 << "KEYEOF"
-$sshPrivKey
-KEYEOF
-chmod 600 ~/.ssh/id_ed25519
+cp /tmp/stage/id_ed25519     /home/`$USER_NAME/.ssh/id_ed25519
+cp /tmp/stage/id_ed25519.pub /home/`$USER_NAME/.ssh/id_ed25519.pub
+cp /tmp/stage/id_ed25519.pub /home/`$USER_NAME/.ssh/authorized_keys
 
-echo "$sshPubKey" > ~/.ssh/id_ed25519.pub
-echo "$sshPubKey" >> ~/.ssh/authorized_keys
-chmod 644 ~/.ssh/id_ed25519.pub ~/.ssh/authorized_keys
+chown `$USER_NAME:`$USER_NAME /home/`$USER_NAME/.ssh/*
+chmod 600 /home/`$USER_NAME/.ssh/id_ed25519
+chmod 644 /home/`$USER_NAME/.ssh/id_ed25519.pub /home/`$USER_NAME/.ssh/authorized_keys
 
-ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-'
-"@
+sudo -u `$USER_NAME ssh-keyscan github.com >> /home/`$USER_NAME/.ssh/known_hosts 2>/dev/null
 
-    # Restart to activate systemd + default user
-    Write-Host "Restarting instance for systemd..."
-    wsl --terminate $Name
-    Start-Sleep -Seconds 3
-
-    # Build Ansible extra-vars JSON
-    $reposJson = ($config.Repos | ForEach-Object { "`"$_`"" }) -join ","
-    $extraVars = @"
-{"user":"$user","git_name":"$($config.GitName)","git_email":"$($config.GitEmail)","ssh_port":$sshPort,"repos":[$reposJson]}
-"@
-    $extraVars = $extraVars -replace "'", "'\''"
-
-    # Provision with Ansible
-    Write-Host "`nInstalling Ansible and provisioning (this takes a few minutes)..."
-    wsl -d $Name --exec bash -c @"
-set -euo pipefail
-
+# --- Ansible ---
 echo '=== Installing git and Ansible ==='
-sudo apt-get update -qq
-sudo apt-get install -y -qq git software-properties-common > /dev/null
-sudo add-apt-repository --yes --update ppa:ansible/ansible > /dev/null 2>&1
-sudo apt-get install -y -qq ansible > /dev/null
+apt-get update -qq
+apt-get install -y -qq git software-properties-common > /dev/null
+add-apt-repository --yes --update ppa:ansible/ansible > /dev/null 2>&1
+apt-get install -y -qq ansible > /dev/null
 
 echo '=== Cloning dev-setup repo ==='
-git clone --depth 1 $setupRepo ~/dev-setup 2>/dev/null || \
-    (cd ~/dev-setup && git pull --ff-only)
+if [ -d /home/`$USER_NAME/dev-setup ]; then
+    echo '  Repo exists, pulling latest...'
+    cd /home/`$USER_NAME/dev-setup
+    sudo -u `$USER_NAME git pull --ff-only
+else
+    echo "  Cloning `$SETUP_REPO ..."
+    sudo -u `$USER_NAME git clone --depth 1 "`$SETUP_REPO" /home/`$USER_NAME/dev-setup
+fi
 
 echo '=== Running Ansible playbook ==='
-cd ~/dev-setup
-ansible-playbook playbook.yml --diff -e '$extraVars'
+cd /home/`$USER_NAME/dev-setup
+ansible-playbook playbook.yml --diff -e @/tmp/stage/extra-vars.json
+
+# --- Cleanup ---
+rm -rf /tmp/stage
 
 echo ''
 echo '========================================='
@@ -269,16 +267,39 @@ echo '========================================='
 echo ''
 echo 'Remaining manual steps:'
 echo '  1. netbird up         (authenticate to mesh VPN)'
-echo '  2. Verify: wsl -d $Name'
 echo ''
-"@
+"@ | ForEach-Object { [IO.File]::WriteAllText("$stageDir\provision.sh", $_, [Text.UTF8Encoding]::new($false)) }
 
-    # Set up Windows port forwarding for SSH
-    Write-Host "Setting up SSH port forwarding (port $sshPort)..."
-    netsh interface portproxy delete v4tov4 listenport=$sshPort listenaddress=0.0.0.0 2>$null
-    netsh interface portproxy add v4tov4 `
-        listenport=$sshPort listenaddress=0.0.0.0 `
-        connectport=$sshPort connectaddress=localhost
+    # Initial setup: create user and enable systemd
+    Write-Host "Configuring user and systemd..."
+    wsl -d $Name --exec bash -c "set -euo pipefail; useradd -m -s /bin/bash -G sudo $user 2>/dev/null || true; echo '$user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user; printf '[boot]\nsystemd=true\n[user]\ndefault=$user\n' > /etc/wsl.conf"
+
+    # Restart to activate systemd + default user
+    Write-Host "Restarting instance for systemd..."
+    wsl --terminate $Name
+    Start-Sleep -Seconds 3
+
+    # Copy staging files into the instance and run provisioning
+    Write-Host "`nProvisioning (this takes a few minutes)..."
+
+    # Convert Windows path to WSL path for the stage dir
+    $wslStageDir = wsl -d $Name --exec wslpath -a "$stageDir"
+    wsl -d $Name --exec bash -c "cp -r $wslStageDir /tmp/stage && chmod +x /tmp/stage/provision.sh && sudo /tmp/stage/provision.sh"
+
+    # Clean up staging dir on Windows side
+    Remove-Item -Recurse -Force $stageDir
+
+    # Set up Windows port forwarding for SSH (requires admin, non-fatal if it fails)
+    Write-Host "`nSetting up SSH port forwarding (port $sshPort)..."
+    try {
+        netsh interface portproxy delete v4tov4 listenport=$sshPort listenaddress=0.0.0.0 2>$null
+        netsh interface portproxy add v4tov4 `
+            listenport=$sshPort listenaddress=0.0.0.0 `
+            connectport=$sshPort connectaddress=localhost
+    } catch {
+        Write-Host "  WARNING: Port forwarding requires admin. Run as Administrator to enable SSH access."
+        Write-Host "  You can still access the instance via: wsl -d $Name"
+    }
 
     Write-Host ""
     Write-Host "Instance '$Name' is ready."
