@@ -1,0 +1,48 @@
+- name: Check current Go version
+  command: /usr/local/go/bin/go version
+  register: go_current
+  changed_when: false
+  failed_when: false
+
+- name: Install Go {{ go_version }}
+  when: go_current.rc != 0 or ('go' + go_version) not in go_current.stdout
+  block:
+    - name: Download Go tarball
+      get_url:
+        url: "https://go.dev/dl/go{{ go_version }}.linux-amd64.tar.gz"
+        dest: "/tmp/go{{ go_version }}.tar.gz"
+        mode: "0644"
+
+    - name: Remove previous Go installation
+      file:
+        path: /usr/local/go
+        state: absent
+
+    - name: Extract Go
+      unarchive:
+        src: "/tmp/go{{ go_version }}.tar.gz"
+        dest: /usr/local
+        remote_src: true
+
+    - name: Clean up tarball
+      file:
+        path: "/tmp/go{{ go_version }}.tar.gz"
+        state: absent
+
+- name: Add Go to system PATH
+  copy:
+    dest: /etc/profile.d/go.sh
+    content: |
+      export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
+    mode: "0644"
+
+- name: Install Go dev tools
+  become_user: "{{ user }}"
+  environment:
+    PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}"
+    GOPATH: "/home/{{ user }}/go"
+  command: "go install {{ item }}"
+  loop:
+    - github.com/air-verse/air@latest
+    - github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+  changed_when: false

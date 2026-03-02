@@ -1,0 +1,13 @@
+# Tools used across projects but not part of a language runtime.
+
+- name: Install Claude CLI
+  npm:
+    name: "@anthropic-ai/claude-code"
+    global: true
+    state: present
+
+- name: Install beads issue tracker
+  npm:
+    name: "@beads/bd"
+    global: true
+    state: present

@@ -1,0 +1,44 @@
+- name: Configure git author name
+  become_user: "{{ user }}"
+  git_config:
+    name: user.name
+    value: "{{ git_name }}"
+    scope: global
+
+- name: Configure git author email
+  become_user: "{{ user }}"
+  git_config:
+    name: user.email
+    value: "{{ git_email }}"
+    scope: global
+
+- name: Set git default branch
+  become_user: "{{ user }}"
+  git_config:
+    name: init.defaultBranch
+    value: main
+    scope: global
+
+- name: Set git pull strategy
+  become_user: "{{ user }}"
+  git_config:
+    name: pull.rebase
+    value: "true"
+    scope: global
+
+- name: Create project directory
+  file:
+    path: "/home/{{ user }}/project"
+    state: directory
+    owner: "{{ user }}"
+    group: "{{ user }}"
+
+- name: Clone project repos
+  become_user: "{{ user }}"
+  git:
+    repo: "git@github.com:{{ item }}.git"
+    dest: "/home/{{ user }}/project/{{ item | split('/') | last }}"
+    version: main
+    accept_hostkey: true
+  loop: "{{ repos }}"
+  when: repos | length > 0

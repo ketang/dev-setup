@@ -1,0 +1,21 @@
+- name: Add PostgreSQL GPG key
+  get_url:
+    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    dest: /etc/apt/keyrings/postgresql.asc
+    mode: "0644"
+
+- name: Add PostgreSQL repository
+  apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/postgresql.asc]
+      https://apt.postgresql.org/pub/repos/apt
+      {{ ansible_distribution_release }}-pgdg main
+    filename: pgdg
+
+- name: Install PostgreSQL client and PostGIS
+  apt:
+    name:
+      - "postgresql-client-{{ postgresql_version }}"
+      - libpq-dev
+    state: present
+    update_cache: true

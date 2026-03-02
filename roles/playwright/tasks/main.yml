@@ -1,0 +1,39 @@
+# Browser dependencies for headed Playwright under WSLg.
+# WSLg provides the Wayland/X11 compositor — we just need the libraries.
+
+- name: Install Playwright browser dependencies
+  apt:
+    name:
+      # GTK / rendering
+      - libgtk-3-0t64
+      - libnotify4
+      - libnss3
+      - libxss1
+      - libxtst6
+      - libatk-bridge2.0-0t64
+      - libdrm2
+      - libxcomposite1
+      - libxdamage1
+      - libxrandr2
+      - libgbm1
+      - libpango-1.0-0
+      - libcairo2
+      - libcups2
+      - libxkbcommon0
+      - libatspi2.0-0t64
+      # Audio (some browser features require it)
+      - libasound2t64
+      # Fonts
+      - fonts-liberation
+      - fonts-noto-color-emoji
+      # D-Bus (browser IPC under WSLg)
+      - dbus
+    state: present
+
+- name: Ensure DISPLAY is set for WSLg
+  copy:
+    dest: /etc/profile.d/wslg.sh
+    content: |
+      # Set DISPLAY for WSLg if not already set
+      export DISPLAY="${DISPLAY:-:0}"
+    mode: "0644"

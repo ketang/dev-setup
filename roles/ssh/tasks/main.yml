@@ -1,0 +1,22 @@
+- name: Install OpenSSH server
+  apt:
+    name: openssh-server
+    state: present
+
+- name: Set SSH port
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?Port "
+    line: "Port {{ ssh_port }}"
+
+- name: Enable pubkey authentication
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PubkeyAuthentication"
+    line: "PubkeyAuthentication yes"
+
+- name: Enable SSH service
+  systemd:
+    name: ssh
+    enabled: true
+    state: started

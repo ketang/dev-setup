@@ -1,0 +1,15 @@
+- name: Check if NetBird is installed
+  command: which netbird
+  register: netbird_check
+  changed_when: false
+  failed_when: false
+
+- name: Install NetBird
+  shell: curl -fsSL https://pkgs.netbird.io/install.sh | sh
+  when: netbird_check.rc != 0
+
+- name: Enable NetBird service
+  systemd:
+    name: netbird
+    enabled: true
+    state: started

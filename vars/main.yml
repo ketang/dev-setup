@@ -1,0 +1,14 @@
+# Versions — update these when upgrading toolchains
+go_version: "1.24.4"
+node_version: "22"
+pnpm_version: "9"
+rust_channel: "stable"
+postgresql_version: "17"
+python_version: "3"
+
+# Defaults — overridden by extra-vars from wsl-dev.ps1
+user: dev
+git_name: "Developer"
+git_email: "dev@example.com"
+ssh_port: 2222
+repos: []

@@ -1,0 +1,46 @@
+- name: Update apt cache
+  apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install base packages
+  apt:
+    name:
+      - build-essential
+      - curl
+      - wget
+      - git
+      - unzip
+      - jq
+      - bc
+      - htop
+      - tmux
+      - ripgrep
+      - fd-find
+      - make
+      - cmake
+      - pkg-config
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - software-properties-common
+      - apt-transport-https
+      - locales
+      - glow
+    state: present
+
+- name: Generate locale
+  locale_gen:
+    name: en_US.UTF-8
+    state: present
+
+- name: Set default locale
+  lineinfile:
+    path: /etc/default/locale
+    regexp: "^LANG="
+    line: "LANG=en_US.UTF-8"
+    create: true
+
+- name: Set timezone
+  community.general.timezone:
+    name: America/New_York

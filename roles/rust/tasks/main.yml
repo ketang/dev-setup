@@ -1,0 +1,26 @@
+- name: Install Rust system dependencies
+  apt:
+    name:
+      - libz3-dev
+      - libclang-dev
+    state: present
+
+- name: Check if Rust is installed
+  become_user: "{{ user }}"
+  command: bash -lc "rustc --version"
+  register: rust_check
+  changed_when: false
+  failed_when: false
+
+- name: Install Rust via rustup
+  become_user: "{{ user }}"
+  shell: |
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+      sh -s -- -y --default-toolchain {{ rust_channel }}
+  args:
+    creates: "/home/{{ user }}/.cargo/bin/rustup"
+
+- name: Ensure Rust toolchain is up to date
+  become_user: "{{ user }}"
+  command: bash -lc "rustup update {{ rust_channel }}"
+  changed_when: false

@@ -1,0 +1,12 @@
+{
+  "User": "",
+  "GitName": "",
+  "GitEmail": "",
+  "SSHKeyPath": "",
+  "SetupRepo": "git@github.com:YOUR_ORG/dev-setup.git",
+  "Repos": [],
+  "Instances": {
+    "dev": { "SSHPort": 2222 },
+    "dev-2": { "SSHPort": 2223 }
+  }
+}

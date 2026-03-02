@@ -1,0 +1,14 @@
+- name: Install Python {{ python_version }} and pip
+  apt:
+    name:
+      - "python{{ python_version }}"
+      - python3-pip
+      - python3-venv
+    state: present
+
+- name: Install Python packages
+  pip:
+    name:
+      - pyyaml
+    state: present
+    extra_args: --break-system-packages
