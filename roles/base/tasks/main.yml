@@ -26,7 +26,12 @@
       - software-properties-common
       - apt-transport-https
       - locales
-      - glow
+      - snapd
+    state: present
+
+- name: Install glow via snap
+  community.general.snap:
+    name: glow
     state: present
 
 - name: Generate locale
