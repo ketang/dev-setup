@@ -107,6 +107,19 @@ function Get-DevConfig {
 
     $cfg["SetupRepo"] = Prompt-Field $cfg "SetupRepo" "dev-setup repo SSH URL (e.g., git@github.com:org/dev-setup.git)" $cfg["SetupRepo"]
 
+    if (-not $cfg.Contains("Dotfiles")) {
+        $dotfiles = Read-Host "Dotfiles repo SSH URL (empty to skip)"
+        $cfg["Dotfiles"] = $dotfiles
+        Save-Config $cfg
+    } else {
+        $df = $cfg["Dotfiles"]
+        if ([string]::IsNullOrWhiteSpace($df)) {
+            Write-Host "  Dotfiles: (none)"
+        } else {
+            Write-Host "  Dotfiles: $df (saved)"
+        }
+    }
+
     if (-not $cfg.Contains("Repos") -or $cfg["Repos"] -eq $null) {
         $repos = @()
         Write-Host "`nProject repos to clone (SSH URLs, e.g., git@github.com:org/repo.git; empty line when done):"
@@ -150,6 +163,8 @@ function Get-InstanceConfig {
 
 function Write-Utf8NoBom {
     param([string]$Path, [string]$Content)
+    # Ensure Unix line endings (LF only) — bash chokes on \r\n
+    $Content = $Content -replace "`r`n", "`n"
     [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
 }
 
@@ -225,92 +240,123 @@ function Invoke-Create {
     Copy-Item $config.SSHKeyPath "$stageDir\id_ed25519"
     Copy-Item "$($config.SSHKeyPath).pub" "$stageDir\id_ed25519.pub"
 
+    $dotfilesRepo = if ($config.Dotfiles) { $config.Dotfiles } else { "" }
+
     $extraVars = [ordered]@{
         user      = $user
         git_name  = $config.GitName
         git_email = $config.GitEmail
         ssh_port  = $sshPort
+        dotfiles  = $dotfilesRepo
         repos     = @($config.Repos | ForEach-Object { $_ })
     }
     Write-Utf8NoBom "$stageDir\extra-vars.json" ($extraVars | ConvertTo-Json -Depth 5)
 
-    # The provision script uses ssh-agent so passphrase-protected keys work.
-    # ssh-add prompts interactively; if it fails the script exits cleanly
-    # and the user can re-run.
-    $provisionScript = @"
+    # Two provision scripts:
+    #   1. provision-root.sh — runs as root: installs SSH keys, apt packages, Ansible
+    #   2. provision-user.sh — runs as the user: ssh-agent, git clones, Ansible
+    #
+    # Splitting avoids the sudo-strips-SSH_AUTH_SOCK problem.
+
+    $rootScript = @"
 #!/bin/bash
 set -euo pipefail
 
 USER_NAME="$user"
-SETUP_REPO="$setupRepo"
 HOME_DIR="/home/`$USER_NAME"
 
 # --- SSH keys ---
 echo '=== Installing SSH keys ==='
-sudo -u `$USER_NAME mkdir -p `$HOME_DIR/.ssh
-sudo -u `$USER_NAME chmod 700 `$HOME_DIR/.ssh
+mkdir -p `$HOME_DIR/.ssh
+chmod 700 `$HOME_DIR/.ssh
 
 cp /tmp/stage/id_ed25519     `$HOME_DIR/.ssh/id_ed25519
 cp /tmp/stage/id_ed25519.pub `$HOME_DIR/.ssh/id_ed25519.pub
 cp /tmp/stage/id_ed25519.pub `$HOME_DIR/.ssh/authorized_keys
 
-chown `$USER_NAME:`$USER_NAME `$HOME_DIR/.ssh/*
+chown -R `$USER_NAME:`$USER_NAME `$HOME_DIR/.ssh
 chmod 600 `$HOME_DIR/.ssh/id_ed25519
 chmod 644 `$HOME_DIR/.ssh/id_ed25519.pub `$HOME_DIR/.ssh/authorized_keys
 
-sudo -u `$USER_NAME ssh-keyscan github.com >> `$HOME_DIR/.ssh/known_hosts 2>/dev/null
+ssh-keyscan github.com >> `$HOME_DIR/.ssh/known_hosts 2>/dev/null
+chown `$USER_NAME:`$USER_NAME `$HOME_DIR/.ssh/known_hosts
 
-# --- Verify SSH key works with GitHub ---
-echo '=== Verifying SSH key with GitHub ==='
-echo 'You may be prompted for your SSH key passphrase.'
-echo ''
-
-# Start ssh-agent and add the key (prompts for passphrase if needed)
-eval "`$(sudo -u `$USER_NAME ssh-agent -s)"
-sudo -u `$USER_NAME SSH_AUTH_SOCK="`$SSH_AUTH_SOCK" ssh-add `$HOME_DIR/.ssh/id_ed25519
-
-# Test the connection
-if ! sudo -u `$USER_NAME SSH_AUTH_SOCK="`$SSH_AUTH_SOCK" ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
-    echo ''
-    echo 'ERROR: SSH authentication to GitHub failed.'
-    echo 'Check that your SSH key is added to your GitHub account.'
-    echo 'Re-run this script to try again.'
-    kill `$SSH_AGENT_PID 2>/dev/null
-    exit 1
-fi
-echo '  GitHub SSH authentication successful.'
-
-# --- Ansible ---
-echo ''
+# --- System packages ---
 echo '=== Installing git and Ansible ==='
 apt-get update -qq
 apt-get install -y -qq git software-properties-common > /dev/null
 add-apt-repository --yes --update ppa:ansible/ansible > /dev/null 2>&1
 apt-get install -y -qq ansible > /dev/null
 
-# --- Clone dev-setup repo ---
-echo '=== Cloning dev-setup repo ==='
-if [ -d `$HOME_DIR/dev-setup ]; then
-    echo '  Repo exists, pulling latest...'
-    cd `$HOME_DIR/dev-setup
-    sudo -u `$USER_NAME SSH_AUTH_SOCK="`$SSH_AUTH_SOCK" git pull --ff-only
+echo '=== Root setup complete ==='
+"@
+    Write-Utf8NoBom "$stageDir\provision-root.sh" $rootScript
+
+    $userScript = @"
+#!/bin/bash
+set -euo pipefail
+
+SETUP_REPO="$setupRepo"
+
+# --- Start ssh-agent and load key ---
+echo '=== Loading SSH key ==='
+echo 'You may be prompted for your SSH key passphrase.'
+echo ''
+eval "`$(ssh-agent -s)" > /dev/null
+ssh-add ~/.ssh/id_ed25519
+
+# Test GitHub connectivity
+echo ''
+echo '=== Verifying GitHub access ==='
+if ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+    echo '  GitHub SSH authentication successful.'
 else
-    echo "  Cloning `$SETUP_REPO ..."
-    sudo -u `$USER_NAME SSH_AUTH_SOCK="`$SSH_AUTH_SOCK" git clone --depth 1 "`$SETUP_REPO" `$HOME_DIR/dev-setup
+    echo ''
+    echo 'ERROR: SSH authentication to GitHub failed.'
+    echo 'Check that your SSH key is added to your GitHub account.'
+    echo 'Re-run the setup script to try again.'
+    kill `$SSH_AGENT_PID 2>/dev/null
+    exit 1
 fi
 
-# --- Run Ansible ---
+# --- Clone dev-setup repo ---
+echo ''
+echo '=== Cloning dev-setup repo ==='
+if [ -d ~/dev-setup ]; then
+    echo '  Repo exists, pulling latest...'
+    cd ~/dev-setup && git pull --ff-only
+else
+    echo "  Cloning `$SETUP_REPO ..."
+    git clone --depth 1 "`$SETUP_REPO" ~/dev-setup
+fi
+
+# --- Dotfiles ---
+DOTFILES_REPO="$dotfilesRepo"
+if [ -n "`$DOTFILES_REPO" ]; then
+    echo ''
+    echo '=== Installing dotfiles ==='
+    if [ -d ~/dotfiles ]; then
+        echo '  Dotfiles repo exists, pulling latest...'
+        cd ~/dotfiles && git pull --ff-only
+    else
+        echo "  Cloning `$DOTFILES_REPO ..."
+        git clone "`$DOTFILES_REPO" ~/dotfiles
+    fi
+    if [ -x ~/dotfiles/install.sh ]; then
+        echo '  Running install.sh...'
+        cd ~/dotfiles && ./install.sh
+    fi
+fi
+
+# --- Run Ansible (needs sudo, but preserves SSH_AUTH_SOCK) ---
+echo ''
 echo '=== Running Ansible playbook ==='
-
-# Export SSH_AUTH_SOCK so Ansible's git module can use it for cloning repos
-export SSH_AUTH_SOCK
-
-cd `$HOME_DIR/dev-setup
-ansible-playbook playbook.yml --diff -e @/tmp/stage/extra-vars.json
+cd ~/dev-setup
+sudo --preserve-env=SSH_AUTH_SOCK ansible-playbook playbook.yml --diff -e @/tmp/stage/extra-vars.json
 
 # --- Cleanup ---
 kill `$SSH_AGENT_PID 2>/dev/null
-rm -rf /tmp/stage
+sudo rm -rf /tmp/stage
 
 echo ''
 echo '========================================='
@@ -321,20 +367,30 @@ echo 'Remaining manual steps:'
 echo '  1. netbird up         (authenticate to mesh VPN)'
 echo ''
 "@
-    Write-Utf8NoBom "$stageDir\provision.sh" $provisionScript
+    Write-Utf8NoBom "$stageDir\provision-user.sh" $userScript
 
     # --- Step 3: Copy staging files in and run provisioning ---
     Write-Host "`nProvisioning (this takes a few minutes)..."
 
     $wslStageDir = wsl -d $Name --exec wslpath -a "$stageDir"
-    wsl -d $Name --exec bash -c "cp -r $wslStageDir /tmp/stage && chmod +x /tmp/stage/provision.sh && sudo -E /tmp/stage/provision.sh"
 
+    # Copy stage files in (as root)
+    wsl -d $Name -u root --exec bash -c "cp -r $wslStageDir /tmp/stage && chmod +x /tmp/stage/*.sh"
+
+    # Root phase: SSH keys + system packages (explicitly as root)
+    Write-Host ""
+    wsl -d $Name -u root --exec /tmp/stage/provision-root.sh
     if ($LASTEXITCODE -ne 0) {
-        Write-Host ""
-        Write-Host "Provisioning failed. The instance '$Name' still exists."
-        Write-Host "Fix the issue and re-run this script to retry."
-        Write-Host "  Or destroy it:  .\wsl-dev.ps1 -Action destroy -Name $Name"
-        # Clean up staging dir
+        Write-Host "`nRoot provisioning failed. Re-run this script to retry."
+        Remove-Item -Recurse -Force $stageDir -ErrorAction SilentlyContinue
+        exit 1
+    }
+
+    # User phase: ssh-agent, git clones, Ansible (explicitly as the user)
+    Write-Host ""
+    wsl -d $Name -u $user --exec /tmp/stage/provision-user.sh
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "`nUser provisioning failed. Re-run this script to retry."
         Remove-Item -Recurse -Force $stageDir -ErrorAction SilentlyContinue
         exit 1
     }

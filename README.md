@@ -27,6 +27,7 @@ First run prompts for:
 - Git author name and email
 - Path to your SSH private key
 - SSH URL of this dev-setup repo
+- Dotfiles repo SSH URL (optional — cloned to `~/dotfiles`, runs `install.sh`)
 - Project repos to clone (SSH URLs)
 
 Everything is saved to a single config file at
@@ -41,6 +42,7 @@ Everything is saved to a single config file at
   "GitEmail": "jane@example.com",
   "SSHKeyPath": "C:\\Users\\jdoe\\.ssh\\id_ed25519",
   "SetupRepo": "git@github.com:jdoe/dev-setup.git",
+  "Dotfiles": "git@github.com:jdoe/dotfiles.git",
   "Repos": [
     "git@github.com:jdoe/project-alpha.git",
     "git@github.com:jdoe/project-beta.git"

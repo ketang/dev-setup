@@ -4,6 +4,7 @@
   "GitEmail": "",
   "SSHKeyPath": "",
   "SetupRepo": "git@github.com:YOUR_ORG/dev-setup.git",
+  "Dotfiles": "",
   "Repos": [],
   "Instances": {
     "dev": { "SSHPort": 2222 },
