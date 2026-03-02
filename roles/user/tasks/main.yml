@@ -36,8 +36,8 @@
 - name: Clone project repos
   become_user: "{{ user }}"
   git:
-    repo: "git@github.com:{{ item }}.git"
-    dest: "/home/{{ user }}/project/{{ item | split('/') | last }}"
+    repo: "{{ item }}"
+    dest: "/home/{{ user }}/project/{{ item | regex_replace('.*[:/]([^/]+)\\.git$', '\\1') }}"
     version: main
     accept_hostkey: true
   loop: "{{ repos }}"

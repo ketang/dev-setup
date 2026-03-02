@@ -19,8 +19,7 @@ wsl --install --no-distribution
 
 ```powershell
 # Download and run (no git required on the host)
-Invoke-WebRequest https://raw.githubusercontent.com/YOU/dev-setup/main/wsl-dev.ps1 -OutFile wsl-dev.ps1
-.\wsl-dev.ps1
+Invoke-WebRequest https://raw.githubusercontent.com/YOU/dev-setup/main/wsl-dev.ps1 -OutFile $env:TEMP\wsl-dev.ps1; & $env:TEMP\wsl-dev.ps1
 ```
 
 First run prompts for:
@@ -28,7 +27,7 @@ First run prompts for:
 - Git author name and email
 - Path to your SSH private key
 - SSH URL of this dev-setup repo
-- Project repos to clone (org/repo format)
+- Project repos to clone (SSH URLs)
 
 Everything is saved to a single config file at
 `%LOCALAPPDATA%\WSLDev\config.json` and reused on rebuilds.
@@ -43,8 +42,8 @@ Everything is saved to a single config file at
   "SSHKeyPath": "C:\\Users\\jdoe\\.ssh\\id_ed25519",
   "SetupRepo": "git@github.com:jdoe/dev-setup.git",
   "Repos": [
-    "jdoe/project-alpha",
-    "jdoe/project-beta"
+    "git@github.com:jdoe/project-alpha.git",
+    "git@github.com:jdoe/project-beta.git"
   ],
   "Instances": {
     "dev":   { "SSHPort": 2222 },

@@ -28,29 +28,70 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$rootfsUrl    = "https://cloud-images.ubuntu.com/wsl/noble/current/ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz"
 $instanceRoot = "$env:LOCALAPPDATA\WSLDev"
 $cacheDir     = "$instanceRoot\.cache"
 $configPath   = "$instanceRoot\config.json"
+$baseName     = "Ubuntu-24.04"  # Store distro used to create base tarball
 
 # ---------------------------------------------------------------------------
-# Config — single file for all settings
+# Config — single file, written incrementally as each field is collected
 # ---------------------------------------------------------------------------
+
+function Save-Config {
+    param([hashtable]$Config)
+    New-Item -ItemType Directory -Path (Split-Path $configPath) -Force | Out-Null
+    $Config | ConvertTo-Json -Depth 5 | Set-Content $configPath
+}
+
+function Prompt-Field {
+    param(
+        [hashtable]$Config,
+        [string]$Key,
+        [string]$Prompt,
+        [string]$Saved
+    )
+    if (-not [string]::IsNullOrWhiteSpace($Saved)) {
+        Write-Host "  $($Key): $Saved (saved)"
+        return $Saved
+    }
+    $value = Read-Host $Prompt
+    $Config[$Key] = $value
+    Save-Config $Config
+    return $value
+}
 
 function Get-DevConfig {
+    # Load existing config or start with an empty one
+    $cfg = [ordered]@{}
+    $resumed = $false
     if (Test-Path $configPath) {
-        $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
-        Write-Host "Using config from $configPath"
-        return $cfg
+        $loaded = Get-Content $configPath -Raw | ConvertFrom-Json
+        foreach ($prop in $loaded.PSObject.Properties) {
+            $cfg[$prop.Name] = $prop.Value
+        }
+        # Check if config is complete
+        $required = @("User", "GitName", "GitEmail", "SSHKeyPath", "SetupRepo", "Repos", "Instances")
+        $missing = $required | Where-Object { -not $cfg.ContainsKey($_) -or [string]::IsNullOrWhiteSpace($cfg[$_]) }
+        if (-not $missing) {
+            Write-Host "Using config from $configPath"
+            Write-Host "  To start fresh, delete the file and re-run.`n"
+            return [PSCustomObject]$cfg
+        }
+        $resumed = $true
+        Write-Host "Resuming setup from $configPath (some fields already saved)."
+        Write-Host "  To start fresh, delete the file and re-run.`n"
+    } else {
+        Write-Host "First-time setup -- each answer is saved immediately.`n"
     }
 
-    Write-Host "First-time setup -- config is saved for future rebuilds.`n"
+    # Collect fields, skipping any that are already set
+    $cfg["User"] = Prompt-Field $cfg "User" "Linux username" $cfg["User"]
 
-    $user     = Read-Host "Linux username"
-    $gitName  = Read-Host "Git author name"
-    $gitEmail = Read-Host "Git author email (for commits)"
-    $sshKey   = Read-Host "Path to SSH private key (e.g., C:\Users\$user\.ssh\id_ed25519)"
+    $cfg["GitName"] = Prompt-Field $cfg "GitName" "Git author name" $cfg["GitName"]
 
+    $cfg["GitEmail"] = Prompt-Field $cfg "GitEmail" "Git author email (for commits)" $cfg["GitEmail"]
+
+    $sshKey = Prompt-Field $cfg "SSHKeyPath" "Path to SSH private key (e.g., C:\Users\$($cfg["User"])\.ssh\id_ed25519)" $cfg["SSHKeyPath"]
     if (-not (Test-Path $sshKey)) {
         Write-Error "SSH key not found at $sshKey"
         exit 1
@@ -60,32 +101,32 @@ function Get-DevConfig {
         exit 1
     }
 
-    $setupRepo = Read-Host "dev-setup repo SSH URL (e.g., git@github.com:org/dev-setup.git)"
+    $cfg["SetupRepo"] = Prompt-Field $cfg "SetupRepo" "dev-setup repo SSH URL (e.g., git@github.com:org/dev-setup.git)" $cfg["SetupRepo"]
 
-    $repos = @()
-    Write-Host "`nProject repos to clone (org/repo format, empty line when done):"
-    while ($true) {
-        $repo = Read-Host "  repo"
-        if ([string]::IsNullOrWhiteSpace($repo)) { break }
-        $repos += $repo
+    if (-not $cfg.ContainsKey("Repos") -or $cfg["Repos"] -eq $null) {
+        $repos = @()
+        Write-Host "`nProject repos to clone (SSH URLs, e.g., git@github.com:org/repo.git; empty line when done):"
+        while ($true) {
+            $repo = Read-Host "  repo"
+            if ([string]::IsNullOrWhiteSpace($repo)) { break }
+            $repos += $repo
+        }
+        $cfg["Repos"] = $repos
+        Save-Config $cfg
+    } else {
+        $repoList = ($cfg["Repos"] | ForEach-Object { $_ }) -join ", "
+        Write-Host "  Repos: $repoList (saved)"
     }
 
-    $cfg = [ordered]@{
-        User       = $user
-        GitName    = $gitName
-        GitEmail   = $gitEmail
-        SSHKeyPath = $sshKey
-        SetupRepo  = $setupRepo
-        Repos      = $repos
-        Instances  = [ordered]@{
-            dev   = [ordered]@{ SSHPort = 2222 }
+    if (-not $cfg.ContainsKey("Instances") -or $cfg["Instances"] -eq $null) {
+        $cfg["Instances"] = [ordered]@{
+            dev     = [ordered]@{ SSHPort = 2222 }
             "dev-2" = [ordered]@{ SSHPort = 2223 }
         }
+        Save-Config $cfg
     }
 
-    New-Item -ItemType Directory -Path (Split-Path $configPath) -Force | Out-Null
-    $cfg | ConvertTo-Json -Depth 5 | Set-Content $configPath
-    Write-Host "`nConfig saved to $configPath`n"
+    Write-Host "`nConfig complete.`n"
     return [PSCustomObject]$cfg
 }
 
@@ -118,14 +159,29 @@ function Invoke-Create {
     $inst = Get-InstanceConfig -Config $config -InstanceName $Name
     $sshPort = $inst.SSHPort
 
-    # Download rootfs if not cached
+    # Get base tarball from the official Store image (cached after first run)
     New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
     $tarball = "$cacheDir\ubuntu-noble.tar.gz"
     if (-not (Test-Path $tarball)) {
-        Write-Host "Downloading Ubuntu 24.04 rootfs..."
-        Invoke-WebRequest -Uri $rootfsUrl -OutFile $tarball -UseBasicParsing
+        Write-Host "Creating base image from official Ubuntu Store distro..."
+
+        # Check if the Store distro is already installed
+        $installed = wsl --list --quiet 2>$null | Where-Object { $_ -match "^$baseName$" }
+        if (-not $installed) {
+            Write-Host "  Installing $baseName from Microsoft Store..."
+            wsl --install $baseName --no-launch
+            if ($LASTEXITCODE -ne 0) { throw "wsl --install $baseName failed" }
+        }
+
+        Write-Host "  Exporting to tarball (this takes a minute)..."
+        wsl --export $baseName $tarball
+        if ($LASTEXITCODE -ne 0) { throw "wsl --export failed" }
+
+        Write-Host "  Removing temporary Store distro..."
+        wsl --unregister $baseName
+        Write-Host "  Base image cached at $tarball"
     } else {
-        Write-Host "Using cached rootfs."
+        Write-Host "Using cached base image."
     }
 
     # Create instance
