@@ -71,7 +71,7 @@ function Get-DevConfig {
         }
         # Check if config is complete
         $required = @("User", "GitName", "GitEmail", "SSHKeyPath", "SetupRepo", "Repos", "Instances")
-        $missing = $required | Where-Object { -not $cfg.ContainsKey($_) -or [string]::IsNullOrWhiteSpace($cfg[$_]) }
+        $missing = $required | Where-Object { -not $cfg.Contains($_) -or [string]::IsNullOrWhiteSpace($cfg[$_]) }
         if (-not $missing) {
             Write-Host "Using config from $configPath"
             Write-Host "  To start fresh, delete the file and re-run.`n"
@@ -103,7 +103,7 @@ function Get-DevConfig {
 
     $cfg["SetupRepo"] = Prompt-Field $cfg "SetupRepo" "dev-setup repo SSH URL (e.g., git@github.com:org/dev-setup.git)" $cfg["SetupRepo"]
 
-    if (-not $cfg.ContainsKey("Repos") -or $cfg["Repos"] -eq $null) {
+    if (-not $cfg.Contains("Repos") -or $cfg["Repos"] -eq $null) {
         $repos = @()
         Write-Host "`nProject repos to clone (SSH URLs, e.g., git@github.com:org/repo.git; empty line when done):"
         while ($true) {
@@ -118,7 +118,7 @@ function Get-DevConfig {
         Write-Host "  Repos: $repoList (saved)"
     }
 
-    if (-not $cfg.ContainsKey("Instances") -or $cfg["Instances"] -eq $null) {
+    if (-not $cfg.Contains("Instances") -or $cfg["Instances"] -eq $null) {
         $cfg["Instances"] = [ordered]@{
             dev     = [ordered]@{ SSHPort = 2222 }
             "dev-2" = [ordered]@{ SSHPort = 2223 }
