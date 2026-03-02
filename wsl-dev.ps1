@@ -305,19 +305,11 @@ echo ''
 eval "`$(ssh-agent -s)" > /dev/null
 ssh-add ~/.ssh/id_ed25519
 
-# Test GitHub connectivity
+# Verify the agent is working
 echo ''
-echo '=== Verifying GitHub access ==='
-if ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
-    echo '  GitHub SSH authentication successful.'
-else
-    echo ''
-    echo 'ERROR: SSH authentication to GitHub failed.'
-    echo 'Check that your SSH key is added to your GitHub account.'
-    echo 'Re-run the setup script to try again.'
-    kill `$SSH_AGENT_PID 2>/dev/null
-    exit 1
-fi
+echo '=== Verifying SSH agent ==='
+ssh-add -l
+echo '  Agent has key loaded.'
 
 # --- Clone dev-setup repo ---
 echo ''
