@@ -390,15 +390,25 @@ echo ''
     # Clean up staging dir on Windows side
     Remove-Item -Recurse -Force $stageDir -ErrorAction SilentlyContinue
 
-    # --- Step 4: Port forwarding (non-fatal) ---
+    # --- Step 4: Port forwarding (non-fatal, elevates for netsh) ---
     Write-Host "`nSetting up SSH port forwarding (port $sshPort)..."
     try {
-        netsh interface portproxy delete v4tov4 listenport=$sshPort listenaddress=0.0.0.0 2>$null
-        netsh interface portproxy add v4tov4 `
-            listenport=$sshPort listenaddress=0.0.0.0 `
-            connectport=$sshPort connectaddress=localhost
+        $netshCmd = "netsh interface portproxy delete v4tov4 listenport=$sshPort listenaddress=0.0.0.0 2>`$null; " +
+                    "netsh interface portproxy add v4tov4 listenport=$sshPort listenaddress=0.0.0.0 connectport=$sshPort connectaddress=localhost"
+        Start-Process powershell -Verb RunAs -ArgumentList "-Command", $netshCmd -Wait -WindowStyle Hidden
+        # Verify the rule was actually created
+        $proxy = netsh interface portproxy show v4tov4 2>$null
+        if ($proxy -match "$sshPort") {
+            Write-Host "  Port forwarding configured."
+        } else {
+            Write-Host "  WARNING: Port forwarding rule not found. The elevated command may have failed."
+            Write-Host "  You can still access the instance via: wsl -d $Name"
+        }
+    } catch [System.InvalidOperationException] {
+        Write-Host "  WARNING: UAC prompt was declined. Port forwarding not configured."
+        Write-Host "  You can still access the instance via: wsl -d $Name"
     } catch {
-        Write-Host "  WARNING: Port forwarding requires admin. Run as Administrator to enable SSH access."
+        Write-Host "  WARNING: Port forwarding failed: $_"
         Write-Host "  You can still access the instance via: wsl -d $Name"
     }
 
@@ -424,8 +434,12 @@ function Invoke-Destroy {
     if (Test-Path $instancePath) {
         Remove-Item -Recurse -Force $instancePath
     }
-    netsh interface portproxy delete v4tov4 `
-        listenport=$sshPort listenaddress=0.0.0.0 2>$null
+    try {
+        $netshCmd = "netsh interface portproxy delete v4tov4 listenport=$sshPort listenaddress=0.0.0.0 2>`$null"
+        Start-Process powershell -Verb RunAs -ArgumentList "-Command", $netshCmd -Wait -WindowStyle Hidden
+    } catch {
+        Write-Host "  WARNING: Could not remove port forwarding (requires admin)."
+    }
     Write-Host "Instance '$Name' destroyed."
 }
 
