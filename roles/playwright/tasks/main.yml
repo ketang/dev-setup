@@ -28,9 +28,13 @@
       - fonts-noto-color-emoji
       # D-Bus (browser IPC under WSLg)
       - dbus
-      # Browsers for Playwright
+    state: present
+
+- name: Install browsers for Playwright via snap
+  community.general.snap:
+    name:
       - firefox
-      - chromium-browser
+      - chromium
     state: present
 
 - name: Ensure DISPLAY is set for WSLg
