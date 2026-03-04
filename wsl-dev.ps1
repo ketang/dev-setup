@@ -228,15 +228,19 @@ function Invoke-Create {
         wsl --import $Name $instancePath $tarball --version 2
         if ($LASTEXITCODE -ne 0) { throw "wsl --import failed" }
 
-        # Create user and enable systemd
-        Write-Host "Configuring user and systemd..."
-        wsl -d $Name --exec bash -c "set -euo pipefail; useradd -m -s /bin/bash -G sudo $user 2>/dev/null || true; echo '$user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user; printf '[boot]\nsystemd=true\n[user]\ndefault=$user\n' > /etc/wsl.conf"
+        # Enable systemd
+        Write-Host "Enabling systemd..."
+        wsl -d $Name --exec bash -c "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
 
-        # Restart to activate systemd + default user
+        # Restart to activate systemd
         Write-Host "Restarting instance for systemd..."
         wsl --terminate $Name
         Start-Sleep -Seconds 3
     }
+
+    # Ensure user exists (idempotent — runs on both new and re-provision)
+    Write-Host "Ensuring user '$user' exists..."
+    wsl -d $Name -u root --exec bash -c "set -euo pipefail; id $user &>/dev/null || useradd -m -s /bin/bash $user; usermod -aG sudo $user; echo '$user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user; grep -q '^\[user\]' /etc/wsl.conf || printf '\n[user]\ndefault=$user\n' >> /etc/wsl.conf"
 
     # --- Step 2: Stage files ---
     $stageDir = "$instanceRoot\.stage"
@@ -247,11 +251,22 @@ function Invoke-Create {
 
     $dotfilesRepo = if ($config.Dotfiles) { $config.Dotfiles } else { "" }
 
+    # Get Windows timezone and convert to IANA format for Linux
+    $ianaTz = "Etc/UTC"
+    $winTz = (Get-TimeZone).Id
+    $converted = $null
+    if ([System.TimeZoneInfo]::TryConvertWindowsIdToIanaId($winTz, [ref]$converted)) {
+        $ianaTz = $converted
+    } else {
+        Write-Host "  WARNING: Could not convert Windows timezone '$winTz' to IANA. Defaulting to UTC."
+    }
+
     $extraVars = [ordered]@{
         user      = $user
         git_name  = $config.GitName
         git_email = $config.GitEmail
         ssh_port  = $sshPort
+        timezone  = $ianaTz
         dotfiles  = $dotfilesRepo
         repos     = @($config.Repos | ForEach-Object { $_ })
     }
