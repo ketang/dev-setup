@@ -17,6 +17,12 @@
     line: "PubkeyAuthentication yes"
   notify: Restart sshd
 
+- name: Disable ssh.socket (uses hardcoded port 22, ignores sshd_config)
+  systemd:
+    name: ssh.socket
+    enabled: false
+    state: stopped
+
 - name: Enable SSH service
   systemd:
     name: ssh
