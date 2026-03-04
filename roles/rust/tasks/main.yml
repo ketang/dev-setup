@@ -6,19 +6,17 @@
     state: present
 
 - name: Check if Rust is installed
-  command: su -l {{ user }} -c 'rustc --version'
+  shell: su -l {{ user }} -c 'rustc --version'
   register: rust_check
   changed_when: false
   failed_when: false
 
 - name: Install Rust via rustup
-  command: >
-    su -l {{ user }} -c
-    'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs |
-    sh -s -- -y --default-toolchain {{ rust_channel }}'
+  shell: |
+    su -l {{ user }} -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain {{ rust_channel }}'
   args:
     creates: "/home/{{ user }}/.cargo/bin/rustup"
 
 - name: Ensure Rust toolchain is up to date
-  command: su -l {{ user }} -c 'rustup update {{ rust_channel }}'
+  shell: su -l {{ user }} -c 'rustup update {{ rust_channel }}'
   changed_when: false

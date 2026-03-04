@@ -1,7 +1,6 @@
 - name: Configure git settings
-  command: >
-    su -l {{ user }} -c
-    'git config --global {{ item.key }} "{{ item.value }}"'
+  shell: |
+    su -l {{ user }} -c 'git config --global {{ item.key }} "{{ item.value }}"'
   loop:
     - { key: user.name, value: "{{ git_name }}" }
     - { key: user.email, value: "{{ git_email }}" }
@@ -17,11 +16,13 @@
     group: "{{ user }}"
 
 - name: Clone project repos
-  command: >
-    su -l {{ user }} -c
-    'export SSH_AUTH_SOCK="{{ lookup('env', 'SSH_AUTH_SOCK') }}";
-    dest="/home/{{ user }}/project/{{ item | regex_replace('.*[:/]([^/]+)\\.git$', '\\1') }}";
-    if [ -d "$dest" ]; then cd "$dest" && git pull --ff-only;
-    else git clone "{{ item }}" "$dest"; fi'
+  shell: |
+    export SSH_AUTH_SOCK="{{ lookup('env', 'SSH_AUTH_SOCK') }}"
+    dest="/home/{{ user }}/project/{{ item | regex_replace('.*[:/]([^/]+)\\.git$', '\\1') }}"
+    if [ -d "$dest" ]; then
+      su -l {{ user }} -c "cd $dest && SSH_AUTH_SOCK=$SSH_AUTH_SOCK git pull --ff-only"
+    else
+      su -l {{ user }} -c "SSH_AUTH_SOCK=$SSH_AUTH_SOCK git clone '{{ item }}' '$dest'"
+    fi
   loop: "{{ repos }}"
   when: repos | length > 0

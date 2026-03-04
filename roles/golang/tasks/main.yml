@@ -37,10 +37,8 @@
     mode: "0644"
 
 - name: Install Go dev tools
-  command: >
-    su -l {{ user }} -c
-    'export PATH="/usr/local/go/bin:$PATH" GOPATH="$HOME/go";
-    go install {{ item }}'
+  shell: |
+    su -l {{ user }} -c 'GOPATH="$HOME/go" PATH="/usr/local/go/bin:$PATH" go install {{ item }}'
   loop:
     - github.com/air-verse/air@latest
     - github.com/golangci/golangci-lint/cmd/golangci-lint@latest
