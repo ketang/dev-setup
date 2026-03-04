@@ -89,6 +89,11 @@ function Get-DevConfig {
     }
 
     # Collect fields, skipping any that are already set
+    # Default Linux username to current Windows session username (lowercase)
+    if (-not $cfg.Contains("User") -or [string]::IsNullOrWhiteSpace($cfg["User"])) {
+        $cfg["User"] = $env:USERNAME.ToLower()
+        Save-Config $cfg
+    }
     $cfg["User"] = Prompt-Field $cfg "User" "Linux username" $cfg["User"]
 
     $cfg["GitName"] = Prompt-Field $cfg "GitName" "Git author name" $cfg["GitName"]

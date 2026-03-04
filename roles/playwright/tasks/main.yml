@@ -28,6 +28,9 @@
       - fonts-noto-color-emoji
       # D-Bus (browser IPC under WSLg)
       - dbus
+      # Browsers for Playwright
+      - firefox
+      - chromium-browser
     state: present
 
 - name: Ensure DISPLAY is set for WSLg

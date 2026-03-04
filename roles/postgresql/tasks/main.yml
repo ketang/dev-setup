@@ -9,7 +9,7 @@
     repo: >-
       deb [signed-by=/etc/apt/keyrings/postgresql.asc]
       https://apt.postgresql.org/pub/repos/apt
-      {{ ansible_distribution_release }}-pgdg main
+      {{ ansible_facts["distribution_release"] }}-pgdg main
     filename: pgdg
 
 - name: Install PostgreSQL client and PostGIS
