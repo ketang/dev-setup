@@ -1,13 +1,20 @@
 # Tools used across projects but not part of a language runtime.
 
-- name: Install Claude CLI
-  npm:
-    name: "@anthropic-ai/claude-code"
-    global: true
-    state: present
+# --- Beads (via go install) ---
 
 - name: Install beads issue tracker
+  become_user: "{{ user }}"
+  environment:
+    PATH: "/usr/local/go/bin:/home/{{ user }}/go/bin:{{ ansible_env.PATH }}"
+    GOPATH: "/home/{{ user }}/go"
+  command: go install github.com/steveyegge/beads/cmd/bd@latest
+  args:
+    creates: "/home/{{ user }}/go/bin/bd"
+
+# --- Claude Code (via npm) ---
+
+- name: Install Claude Code
   npm:
-    name: "@beads/bd"
+    name: "@anthropic-ai/claude-code"
     global: true
     state: present

@@ -25,7 +25,9 @@
       - lsb-release
       - software-properties-common
       - apt-transport-https
+      - keychain
       - locales
+      - net-tools
       - snapd
     state: present
 

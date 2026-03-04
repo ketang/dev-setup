@@ -8,12 +8,14 @@
     path: /etc/ssh/sshd_config
     regexp: "^#?Port "
     line: "Port {{ ssh_port }}"
+  notify: Restart sshd
 
 - name: Enable pubkey authentication
   lineinfile:
     path: /etc/ssh/sshd_config
     regexp: "^#?PubkeyAuthentication"
     line: "PubkeyAuthentication yes"
+  notify: Restart sshd
 
 - name: Enable SSH service
   systemd:
