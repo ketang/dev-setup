@@ -360,7 +360,13 @@ else
     git clone --depth 1 "`$SETUP_REPO" ~/dev-setup
 fi
 
-# --- Dotfiles ---
+# --- Run Ansible (installs all packages) ---
+echo ''
+echo '=== Running Ansible playbook ==='
+cd ~/dev-setup
+sudo --preserve-env=SSH_AUTH_SOCK ansible-playbook playbook.yml --diff -e @/tmp/stage/extra-vars.json
+
+# --- Dotfiles (after packages so tools like stow are available) ---
 DOTFILES_REPO="$dotfilesRepo"
 if [ -n "`$DOTFILES_REPO" ]; then
     echo ''
@@ -377,12 +383,6 @@ if [ -n "`$DOTFILES_REPO" ]; then
         cd ~/dotfiles && ./install.sh
     fi
 fi
-
-# --- Run Ansible (needs sudo, but preserves SSH_AUTH_SOCK) ---
-echo ''
-echo '=== Running Ansible playbook ==='
-cd ~/dev-setup
-sudo --preserve-env=SSH_AUTH_SOCK ansible-playbook playbook.yml --diff -e @/tmp/stage/extra-vars.json
 
 # --- Cleanup ---
 kill `$SSH_AGENT_PID 2>/dev/null
