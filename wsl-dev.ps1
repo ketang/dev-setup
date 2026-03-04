@@ -253,15 +253,9 @@ function Invoke-Create {
 
     $dotfilesRepo = if ($config.Dotfiles) { $config.Dotfiles } else { "" }
 
-    # Get Windows timezone and convert to IANA format for Linux
-    $ianaTz = "Etc/UTC"
-    $winTz = (Get-TimeZone).Id
-    $converted = $null
-    if ([System.TimeZoneInfo]::TryConvertWindowsIdToIanaId($winTz, [ref]$converted)) {
-        $ianaTz = $converted
-    } else {
-        Write-Host "  WARNING: Could not convert Windows timezone '$winTz' to IANA. Defaulting to UTC."
-    }
+    # Get IANA timezone from the WSL instance (inherits from Windows)
+    $ianaTz = (wsl -d $Name -u root --exec cat /etc/timezone 2>$null)
+    if (-not $ianaTz) { $ianaTz = "Etc/UTC" }
 
     $extraVars = [ordered]@{
         user      = $user
