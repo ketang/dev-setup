@@ -37,11 +37,10 @@
     mode: "0644"
 
 - name: Install Go dev tools
-  become_user: "{{ user }}"
-  environment:
-    PATH: "/usr/local/go/bin:{{ ansible_env.PATH }}"
-    GOPATH: "/home/{{ user }}/go"
-  command: "go install {{ item }}"
+  command: >
+    su -l {{ user }} -c
+    'export PATH="/usr/local/go/bin:$PATH" GOPATH="$HOME/go";
+    go install {{ item }}'
   loop:
     - github.com/air-verse/air@latest
     - github.com/golangci/golangci-lint/cmd/golangci-lint@latest

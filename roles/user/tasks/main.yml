@@ -1,30 +1,13 @@
-- name: Configure git author name
-  become_user: "{{ user }}"
-  git_config:
-    name: user.name
-    value: "{{ git_name }}"
-    scope: global
-
-- name: Configure git author email
-  become_user: "{{ user }}"
-  git_config:
-    name: user.email
-    value: "{{ git_email }}"
-    scope: global
-
-- name: Set git default branch
-  become_user: "{{ user }}"
-  git_config:
-    name: init.defaultBranch
-    value: main
-    scope: global
-
-- name: Set git pull strategy
-  become_user: "{{ user }}"
-  git_config:
-    name: pull.rebase
-    value: "true"
-    scope: global
+- name: Configure git settings
+  command: >
+    su -l {{ user }} -c
+    'git config --global {{ item.key }} "{{ item.value }}"'
+  loop:
+    - { key: user.name, value: "{{ git_name }}" }
+    - { key: user.email, value: "{{ git_email }}" }
+    - { key: init.defaultBranch, value: main }
+    - { key: pull.rebase, value: "true" }
+  changed_when: false
 
 - name: Create project directory
   file:
@@ -34,13 +17,11 @@
     group: "{{ user }}"
 
 - name: Clone project repos
-  become_user: "{{ user }}"
-  environment:
-    SSH_AUTH_SOCK: "{{ lookup('env', 'SSH_AUTH_SOCK') }}"
-  git:
-    repo: "{{ item }}"
-    dest: "/home/{{ user }}/project/{{ item | regex_replace('.*[:/]([^/]+)\\.git$', '\\1') }}"
-    version: main
-    accept_hostkey: true
+  command: >
+    su -l {{ user }} -c
+    'export SSH_AUTH_SOCK="{{ lookup('env', 'SSH_AUTH_SOCK') }}";
+    dest="/home/{{ user }}/project/{{ item | regex_replace('.*[:/]([^/]+)\\.git$', '\\1') }}";
+    if [ -d "$dest" ]; then cd "$dest" && git pull --ff-only;
+    else git clone "{{ item }}" "$dest"; fi'
   loop: "{{ repos }}"
   when: repos | length > 0
