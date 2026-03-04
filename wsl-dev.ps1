@@ -179,8 +179,10 @@ function Write-Utf8NoBom {
 
 function Test-WslInstance {
     param([string]$InstanceName)
-    $list = wsl --list --quiet 2>$null
-    return ($list | Where-Object { $_ -match "^${InstanceName}$" }) -ne $null
+    # wsl --list output contains null characters; strip them before matching
+    $raw = (wsl --list --quiet 2>$null) -join "`n"
+    $clean = $raw -replace "`0", ""
+    return ($clean -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -eq $InstanceName }).Count -gt 0
 }
 
 # ---------------------------------------------------------------------------
