@@ -192,10 +192,17 @@ function Invoke-Create {
 
     # Use -Name as the WSL instance name and hostname
     if ([string]::IsNullOrWhiteSpace($Name)) {
-        $Name = Read-Host "Hostname for this instance (used as WSL name and Linux hostname)"
-        if ([string]::IsNullOrWhiteSpace($Name)) {
-            Write-Error "Hostname is required."
-            exit 1
+        # Reuse the existing instance name if there's exactly one
+        $instances = @($config.Instances.PSObject.Properties)
+        if ($instances.Count -eq 1) {
+            $Name = $instances[0].Name
+            Write-Host "  Using instance: $Name (from config)"
+        } else {
+            $Name = Read-Host "Hostname for this instance (used as WSL name and Linux hostname)"
+            if ([string]::IsNullOrWhiteSpace($Name)) {
+                Write-Error "Hostname is required."
+                exit 1
+            }
         }
     }
 
