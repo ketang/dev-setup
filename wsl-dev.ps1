@@ -142,8 +142,8 @@ function Get-DevConfig {
 
     if (-not $cfg.Contains("Instances") -or $cfg["Instances"] -eq $null) {
         $cfg["Instances"] = [ordered]@{
-            dev     = [ordered]@{ SSHPort = 2222 }
-            "dev-2" = [ordered]@{ SSHPort = 2223 }
+            dev     = [ordered]@{ SSHPort = 2222; Hostname = "" }
+            "dev-2" = [ordered]@{ SSHPort = 2223; Hostname = "" }
         }
         Save-Config $cfg
     }
@@ -195,6 +195,19 @@ function Invoke-Create {
     $sshPort = $inst.SSHPort
     $user = $config.User
     $setupRepo = $config.SetupRepo
+
+    # Prompt for hostname if not set for this instance
+    $hostname = $inst.Hostname
+    if ([string]::IsNullOrWhiteSpace($hostname)) {
+        $hostname = Read-Host "Hostname for instance '$Name' (e.g., dev-vm)"
+        # Save back to config
+        $config.Instances.PSObject.Properties[$Name].Value | Add-Member -NotePropertyName Hostname -NotePropertyValue $hostname -Force
+        $cfg = [ordered]@{}
+        foreach ($prop in $config.PSObject.Properties) { $cfg[$prop.Name] = $prop.Value }
+        Save-Config $cfg
+    } else {
+        Write-Host "  Hostname: $hostname (saved)"
+    }
 
     # --- Step 1: Ensure WSL2 instance exists ---
     if (Test-WslInstance $Name) {
@@ -262,6 +275,7 @@ function Invoke-Create {
         git_name  = $config.GitName
         git_email = $config.GitEmail
         ssh_port  = $sshPort
+        hostname  = $hostname
         timezone  = $ianaTz
         dotfiles  = $dotfilesRepo
         repos     = @($config.Repos | ForEach-Object { $_ })

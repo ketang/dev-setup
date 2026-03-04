@@ -48,6 +48,11 @@
     line: "LANG=en_US.UTF-8"
     create: true
 
+- name: Set hostname
+  hostname:
+    name: "{{ hostname }}"
+  when: hostname | length > 0
+
 - name: Set timezone
   community.general.timezone:
     name: "{{ timezone }}"

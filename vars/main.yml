@@ -11,5 +11,6 @@ user: dev
 git_name: "Developer"
 git_email: "dev@example.com"
 ssh_port: 2222
+hostname: ""
 timezone: "Etc/UTC"
 repos: []
