@@ -17,17 +17,17 @@
     detects the existing instance and re-provisions it.
 
 .EXAMPLE
-    .\wsl-dev.ps1                              # Create instance (prompts for hostname)
-    .\wsl-dev.ps1 -Name myhost                 # Create instance named "myhost"
-    .\wsl-dev.ps1 -Action destroy -Name myhost # Destroy named instance
-    .\wsl-dev.ps1 -Action list                 # List all WSL instances
+    .\wsl-dev.ps1                              # Prompts for hostname, creates instance
+    .\wsl-dev.ps1 -Name myhost                 # Creates instance named "myhost"
+    .\wsl-dev.ps1 -Action destroy -Name myhost # Destroys named instance
+    .\wsl-dev.ps1 -Action list                 # Lists all WSL instances
 #>
 
 param(
     [ValidateSet("create", "destroy", "list")]
     [string]$Action = "create",
 
-    [string]$Name = "dev"
+    [string]$Name
 )
 
 $ErrorActionPreference = "Stop"
@@ -191,15 +191,11 @@ function Invoke-Create {
     $setupRepo = $config.SetupRepo
 
     # Use -Name as the WSL instance name and hostname
-    # If using the default "dev", prompt for a real hostname (unless "dev" already exists in config)
-    if ($Name -eq "dev") {
-        $hasExisting = $config.Instances.PSObject.Properties | Where-Object { $_.Name -eq "dev" }
-        if (-not $hasExisting) {
-            $Name = Read-Host "Hostname for this instance (used as WSL name and Linux hostname)"
-            if ([string]::IsNullOrWhiteSpace($Name)) {
-                Write-Error "Hostname is required."
-                exit 1
-            }
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        $Name = Read-Host "Hostname for this instance (used as WSL name and Linux hostname)"
+        if ([string]::IsNullOrWhiteSpace($Name)) {
+            Write-Error "Hostname is required."
+            exit 1
         }
     }
 
@@ -462,6 +458,10 @@ echo ''
 # ---------------------------------------------------------------------------
 
 function Invoke-Destroy {
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        Write-Error "Destroy requires -Name <instance>."
+        exit 1
+    }
     $config = Get-DevConfig
     $inst = Get-InstanceConfig -Config $config -InstanceName $Name
     $sshPort = $inst.SSHPort

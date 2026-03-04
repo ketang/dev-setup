@@ -53,6 +53,15 @@
     name: "{{ hostname }}"
   when: hostname | length > 0
 
+- name: Persist hostname in wsl.conf
+  blockinfile:
+    path: /etc/wsl.conf
+    block: |
+      [network]
+      hostname = {{ hostname }}
+    marker: "# {mark} ANSIBLE MANAGED - hostname"
+  when: hostname | length > 0
+
 - name: Set timezone
   community.general.timezone:
     name: "{{ timezone }}"
