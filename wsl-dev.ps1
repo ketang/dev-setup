@@ -17,10 +17,9 @@
     detects the existing instance and re-provisions it.
 
 .EXAMPLE
-    .\wsl-dev.ps1                              # Create default "dev" instance
-    .\wsl-dev.ps1 -Name dev-2                  # Create a second instance
-    .\wsl-dev.ps1 -Action destroy              # Destroy default instance
-    .\wsl-dev.ps1 -Action destroy -Name dev-2  # Destroy named instance
+    .\wsl-dev.ps1                              # Create instance (prompts for hostname)
+    .\wsl-dev.ps1 -Name myhost                 # Create instance named "myhost"
+    .\wsl-dev.ps1 -Action destroy -Name myhost # Destroy named instance
     .\wsl-dev.ps1 -Action list                 # List all WSL instances
 #>
 
@@ -141,10 +140,7 @@ function Get-DevConfig {
     }
 
     if (-not $cfg.Contains("Instances") -or $cfg["Instances"] -eq $null) {
-        $cfg["Instances"] = [ordered]@{
-            dev     = [ordered]@{ SSHPort = 2222; Hostname = "" }
-            "dev-2" = [ordered]@{ SSHPort = 2223; Hostname = "" }
-        }
+        $cfg["Instances"] = [ordered]@{}
         Save-Config $cfg
     }
 
@@ -191,23 +187,35 @@ function Test-WslInstance {
 
 function Invoke-Create {
     $config = Get-DevConfig
-    $inst = Get-InstanceConfig -Config $config -InstanceName $Name
-    $sshPort = $inst.SSHPort
     $user = $config.User
     $setupRepo = $config.SetupRepo
 
-    # Prompt for hostname if not set for this instance
-    $hostname = $inst.Hostname
-    if ([string]::IsNullOrWhiteSpace($hostname)) {
-        $hostname = Read-Host "Hostname for instance '$Name' (e.g., dev-vm)"
-        # Save back to config
-        $config.Instances.PSObject.Properties[$Name].Value | Add-Member -NotePropertyName Hostname -NotePropertyValue $hostname -Force
+    # Use -Name as the WSL instance name and hostname
+    # If using the default "dev", prompt for a real hostname (unless "dev" already exists in config)
+    if ($Name -eq "dev") {
+        $hasExisting = $config.Instances.PSObject.Properties | Where-Object { $_.Name -eq "dev" }
+        if (-not $hasExisting) {
+            $Name = Read-Host "Hostname for this instance (used as WSL name and Linux hostname)"
+            if ([string]::IsNullOrWhiteSpace($Name)) {
+                Write-Error "Hostname is required."
+                exit 1
+            }
+        }
+    }
+
+    $inst = Get-InstanceConfig -Config $config -InstanceName $Name
+    $sshPort = $inst.SSHPort
+
+    # Save instance config if new
+    $existingInst = $config.Instances.PSObject.Properties | Where-Object { $_.Name -eq $Name }
+    if (-not $existingInst) {
+        $config.Instances | Add-Member -NotePropertyName $Name -NotePropertyValue ([PSCustomObject]@{ SSHPort = $sshPort }) -Force
         $cfg = [ordered]@{}
         foreach ($prop in $config.PSObject.Properties) { $cfg[$prop.Name] = $prop.Value }
         Save-Config $cfg
-    } else {
-        Write-Host "  Hostname: $hostname (saved)"
     }
+
+    $hostname = $Name
 
     # --- Step 1: Ensure WSL2 instance exists ---
     if (Test-WslInstance $Name) {
