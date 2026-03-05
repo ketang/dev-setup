@@ -56,7 +56,8 @@
     dest: /etc/profile.d/wsl-ssh-agent.sh
     content: |
       # Forward Windows SSH agent to WSL via npiperelay
-      if [ -n "$WSL_DISTRO_NAME" ]; then
+      # Use /proc check instead of $WSL_DISTRO_NAME (which isn't set in SSH sessions)
+      if [ -e /proc/sys/fs/binfmt_misc/WSLInterop ] || [ -n "$WSL_DISTRO_NAME" ]; then
         export SSH_AUTH_SOCK="$HOME/.ssh/agent.sock"
         if ! ss -a 2>/dev/null | grep -q "$SSH_AUTH_SOCK"; then
           rm -f "$SSH_AUTH_SOCK"
