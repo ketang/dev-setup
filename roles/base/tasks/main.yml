@@ -28,6 +28,7 @@
       - keychain
       - locales
       - net-tools
+      - socat
       - snapd
     state: present
 

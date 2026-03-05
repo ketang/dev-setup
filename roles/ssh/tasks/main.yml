@@ -28,3 +28,27 @@
     name: ssh
     enabled: true
     state: started
+
+# --- Windows SSH agent forwarding via npiperelay ---
+
+- name: Install npiperelay
+  shell: |
+    su -l {{ user }} -c 'GOPATH="$HOME/go" PATH="/usr/local/go/bin:$PATH" go install github.com/jstarks/npiperelay@latest'
+  args:
+    creates: "/home/{{ user }}/go/bin/npiperelay"
+
+- name: Configure Windows SSH agent forwarding
+  copy:
+    dest: /etc/profile.d/wsl-ssh-agent.sh
+    content: |
+      # Forward Windows SSH agent to WSL via npiperelay
+      if [ -n "$WSL_DISTRO_NAME" ]; then
+        export SSH_AUTH_SOCK="$HOME/.ssh/agent.sock"
+        if ! ss -a 2>/dev/null | grep -q "$SSH_AUTH_SOCK"; then
+          rm -f "$SSH_AUTH_SOCK"
+          setsid socat UNIX-LISTEN:"$SSH_AUTH_SOCK",fork \
+            EXEC:"$HOME/go/bin/npiperelay -ei -s //./pipe/openssh-ssh-agent",nofork &>/dev/null &
+          disown
+        fi
+      fi
+    mode: "0644"
