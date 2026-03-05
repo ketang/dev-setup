@@ -75,6 +75,14 @@ function Get-DevConfig {
         # Check if config is complete
         $required = @("User", "GitName", "GitEmail", "IdentityKeyPath", "SetupRepo", "Repos", "Instances")
         $missing = $required | Where-Object { -not $cfg.Contains($_) -or [string]::IsNullOrWhiteSpace($cfg[$_]) }
+        # Also treat IdentityKeyPath as missing if the files don't exist on disk
+        $idkPath = $cfg["IdentityKeyPath"]
+        if (-not [string]::IsNullOrWhiteSpace($idkPath) -and (-not (Test-Path $idkPath) -or -not (Test-Path "$idkPath.pub"))) {
+            Write-Host "  Saved GitHub key not found: $idkPath"
+            $cfg.Remove("IdentityKeyPath")
+            Save-Config $cfg
+            $missing = @("IdentityKeyPath")
+        }
         if (-not $missing) {
             Write-Host "Using config from $configPath"
             Write-Host "  To start fresh, delete the file and re-run.`n"
