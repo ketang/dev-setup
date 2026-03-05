@@ -37,10 +37,12 @@
       - chromium
     state: present
 
-- name: Ensure DISPLAY is set for WSLg
+- name: Ensure DISPLAY is set for graphical apps
   copy:
     dest: /etc/profile.d/wslg.sh
     content: |
-      # Set DISPLAY for WSLg if not already set
+      # Set DISPLAY for graphical apps.
+      # - WSLg local sessions: uses :0 (Wayland/X11 compositor)
+      # - SSH X11 forwarding:  sshd sets DISPLAY automatically (e.g. localhost:10.0)
       export DISPLAY="${DISPLAY:-:0}"
     mode: "0644"

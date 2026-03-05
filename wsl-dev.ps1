@@ -73,7 +73,7 @@ function Get-DevConfig {
             $cfg[$prop.Name] = $prop.Value
         }
         # Check if config is complete
-        $required = @("User", "GitName", "GitEmail", "SSHKeyPath", "SetupRepo", "Repos", "Instances")
+        $required = @("User", "GitName", "GitEmail", "IdentityKeyPath", "SetupRepo", "Repos", "Instances")
         $missing = $required | Where-Object { -not $cfg.Contains($_) -or [string]::IsNullOrWhiteSpace($cfg[$_]) }
         if (-not $missing) {
             Write-Host "Using config from $configPath"
@@ -99,13 +99,13 @@ function Get-DevConfig {
 
     $cfg["GitEmail"] = Prompt-Field $cfg "GitEmail" "Git author email (for commits)" $cfg["GitEmail"]
 
-    $sshKey = Prompt-Field $cfg "SSHKeyPath" "Path to SSH private key (e.g., C:\Users\$($cfg["User"])\.ssh\id_ed25519)" $cfg["SSHKeyPath"]
-    if (-not (Test-Path $sshKey)) {
-        Write-Error "SSH key not found at $sshKey"
+    $idKey = Prompt-Field $cfg "IdentityKeyPath" "Path to identity SSH key (e.g., C:\Users\$($cfg["User"])\.ssh\id_ed25519)" $cfg["IdentityKeyPath"]
+    if (-not (Test-Path $idKey)) {
+        Write-Error "Identity key not found at $idKey"
         exit 1
     }
-    if (-not (Test-Path "$sshKey.pub")) {
-        Write-Error "SSH public key not found at $sshKey.pub"
+    if (-not (Test-Path "$idKey.pub")) {
+        Write-Error "Identity public key not found at $idKey.pub"
         exit 1
     }
 
@@ -220,6 +220,16 @@ function Invoke-Create {
 
     $hostname = $Name
 
+    # --- Generate VM access key (separate from identity key) ---
+    $vmKeyPath = "$env:USERPROFILE\.ssh\id_ed25519_wsl_$Name"
+    if (-not (Test-Path $vmKeyPath)) {
+        Write-Host "Generating VM access key at $vmKeyPath ..."
+        ssh-keygen -t ed25519 -f $vmKeyPath -N '""' -C "wsl-$Name-access"
+        if ($LASTEXITCODE -ne 0) { throw "ssh-keygen failed" }
+    } else {
+        Write-Host "  VM access key exists: $vmKeyPath"
+    }
+
     # --- Step 1: Ensure WSL2 instance exists ---
     if (Test-WslInstance $Name) {
         Write-Host "Instance '$Name' already exists. Re-provisioning..."
@@ -272,8 +282,10 @@ function Invoke-Create {
     $stageDir = "$instanceRoot\.stage"
     New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
 
-    Copy-Item $config.SSHKeyPath "$stageDir\id_ed25519"
-    Copy-Item "$($config.SSHKeyPath).pub" "$stageDir\id_ed25519.pub"
+    Copy-Item $vmKeyPath "$stageDir\vm_access_key"
+    Copy-Item "$vmKeyPath.pub" "$stageDir\vm_access_key.pub"
+    Copy-Item "$($config.IdentityKeyPath).pub" "$stageDir\id_ed25519.pub"
+    Copy-Item $config.IdentityKeyPath "$stageDir\identity_key"
 
     $dotfilesRepo = if ($config.Dotfiles) { $config.Dotfiles } else { "" }
 
@@ -311,12 +323,13 @@ echo '=== Installing SSH keys ==='
 mkdir -p `$HOME_DIR/.ssh
 chmod 700 `$HOME_DIR/.ssh
 
-cp /tmp/stage/id_ed25519     `$HOME_DIR/.ssh/id_ed25519
+# VM access key (from Windows) → authorized_keys
+cp /tmp/stage/vm_access_key.pub `$HOME_DIR/.ssh/authorized_keys
+
+# Identity public key only (for GitHub reference; private key stays on Windows)
 cp /tmp/stage/id_ed25519.pub `$HOME_DIR/.ssh/id_ed25519.pub
-cp /tmp/stage/id_ed25519.pub `$HOME_DIR/.ssh/authorized_keys
 
 chown -R `$USER_NAME:`$USER_NAME `$HOME_DIR/.ssh
-chmod 600 `$HOME_DIR/.ssh/id_ed25519
 chmod 644 `$HOME_DIR/.ssh/id_ed25519.pub `$HOME_DIR/.ssh/authorized_keys
 
 ssh-keyscan github.com >> `$HOME_DIR/.ssh/known_hosts 2>/dev/null
@@ -339,18 +352,18 @@ set -euo pipefail
 
 SETUP_REPO="$setupRepo"
 
-# --- Start ssh-agent and load key ---
-echo '=== Loading SSH key ==='
+# --- Start temporary ssh-agent with identity key (for git clones during provisioning) ---
+echo '=== Loading identity key for provisioning ==='
 echo 'You may be prompted for your SSH key passphrase.'
 echo ''
 eval "`$(ssh-agent -s)" > /dev/null
-ssh-add ~/.ssh/id_ed25519
+ssh-add /tmp/stage/identity_key
 
 # Verify the agent is working
 echo ''
 echo '=== Verifying SSH agent ==='
 ssh-add -l
-echo '  Agent has key loaded.'
+echo '  Agent has key loaded (temporary, for provisioning only).'
 
 # --- Clone dev-setup repo ---
 echo ''
@@ -387,7 +400,7 @@ if [ -n "`$DOTFILES_REPO" ]; then
     fi
 fi
 
-# --- Cleanup ---
+# --- Cleanup (kill temp agent; remove staged identity key and all stage files) ---
 kill `$SSH_AGENT_PID 2>/dev/null
 sudo rm -rf /tmp/stage
 
@@ -456,7 +469,7 @@ echo ''
     Write-Host ""
     Write-Host "Instance '$Name' is ready."
     Write-Host "  Enter:  wsl -d $Name"
-    Write-Host "  SSH:    ssh -p $sshPort $user@localhost"
+    Write-Host "  SSH:    ssh -i $vmKeyPath -p $sshPort $user@localhost"
     Write-Host ""
 }
 
@@ -478,6 +491,16 @@ function Invoke-Destroy {
     $instancePath = "$instanceRoot\$Name"
     if (Test-Path $instancePath) {
         Remove-Item -Recurse -Force $instancePath
+    }
+    # Remove VM access key pair
+    $vmKeyPath = "$env:USERPROFILE\.ssh\id_ed25519_wsl_$Name"
+    if (Test-Path $vmKeyPath) {
+        Remove-Item -Force $vmKeyPath
+        Write-Host "  Removed $vmKeyPath"
+    }
+    if (Test-Path "$vmKeyPath.pub") {
+        Remove-Item -Force "$vmKeyPath.pub"
+        Write-Host "  Removed $vmKeyPath.pub"
     }
     try {
         $netshCmd = "netsh interface portproxy delete v4tov4 listenport=$sshPort listenaddress=0.0.0.0 2>`$null"

@@ -30,6 +30,8 @@
       - net-tools
       - socat
       - snapd
+      - bubblewrap
+      - xauth
     state: present
 
 - name: Install glow via snap

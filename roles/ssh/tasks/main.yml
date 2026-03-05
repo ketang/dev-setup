@@ -17,6 +17,20 @@
     line: "PubkeyAuthentication yes"
   notify: Restart sshd
 
+- name: Enable X11 forwarding
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?X11Forwarding"
+    line: "X11Forwarding yes"
+  notify: Restart sshd
+
+- name: Allow X11 forwarding from non-localhost
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?X11UseLocalhost"
+    line: "X11UseLocalhost no"
+  notify: Restart sshd
+
 - name: Disable ssh.socket (uses hardcoded port 22, ignores sshd_config)
   systemd:
     name: ssh.socket
