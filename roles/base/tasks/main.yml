@@ -56,6 +56,13 @@
     name: "{{ hostname }}"
   when: hostname | length > 0
 
+- name: Add hostname to /etc/hosts
+  lineinfile:
+    path: /etc/hosts
+    regexp: '^\s*127\.0\.1\.1\s'
+    line: "127.0.1.1 {{ hostname }}"
+  when: hostname | length > 0
+
 - name: Persist hostname in wsl.conf
   blockinfile:
     path: /etc/wsl.conf
