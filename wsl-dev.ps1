@@ -497,11 +497,16 @@ echo ''
     # Clean up staging dir on Windows side
     Remove-Item -Recurse -Force $stageDir -ErrorAction SilentlyContinue
 
-    # --- Step 4: Port forwarding (non-fatal, elevates for netsh) ---
-    Write-Host "`nSetting up SSH port forwarding (port $sshPort)..."
+    # --- Step 4: Port forwarding + hostname alias (non-fatal, elevates for netsh/hosts) ---
+    Write-Host "`nSetting up SSH port forwarding (port $sshPort) and hostname alias..."
     try {
+        $hostsCmd = "`$h = '$env:SystemRoot\System32\drivers\etc\hosts'; " +
+                    "`$entry = '127.0.0.1 $hostname'; " +
+                    "(Get-Content `$h) -notmatch '^\s*[\d\.]+\s+$hostname\s*$' | Set-Content `$h; " +
+                    "Add-Content `$h `$entry"
         $netshCmd = "netsh interface portproxy delete v4tov4 listenport=$sshPort listenaddress=0.0.0.0 2>`$null; " +
-                    "netsh interface portproxy add v4tov4 listenport=$sshPort listenaddress=0.0.0.0 connectport=$sshPort connectaddress=localhost"
+                    "netsh interface portproxy add v4tov4 listenport=$sshPort listenaddress=0.0.0.0 connectport=$sshPort connectaddress=localhost; " +
+                    $hostsCmd
         Start-Process powershell -Verb RunAs -ArgumentList "-Command", $netshCmd -Wait -WindowStyle Hidden
         # Verify the rule was actually created
         $proxy = netsh interface portproxy show v4tov4 2>$null
@@ -522,7 +527,7 @@ echo ''
     Write-Host ""
     Write-Host "Instance '$Name' is ready."
     Write-Host "  Enter:  wsl -d $Name"
-    Write-Host "  SSH:    ssh -i $vmKeyPath -p $sshPort $user@localhost"
+    Write-Host "  SSH:    ssh -i $vmKeyPath -p $sshPort $user@$hostname"
     Write-Host ""
 }
 
@@ -556,10 +561,13 @@ function Invoke-Destroy {
         Write-Host "  Removed $vmKeyPath.pub"
     }
     try {
-        $netshCmd = "netsh interface portproxy delete v4tov4 listenport=$sshPort listenaddress=0.0.0.0 2>`$null"
+        $hostsCmd = "`$h = '$env:SystemRoot\System32\drivers\etc\hosts'; " +
+                    "(Get-Content `$h) -notmatch '^\s*[\d\.]+\s+$Name\s*$' | Set-Content `$h"
+        $netshCmd = "netsh interface portproxy delete v4tov4 listenport=$sshPort listenaddress=0.0.0.0 2>`$null; " +
+                    $hostsCmd
         Start-Process powershell -Verb RunAs -ArgumentList "-Command", $netshCmd -Wait -WindowStyle Hidden
     } catch {
-        Write-Host "  WARNING: Could not remove port forwarding (requires admin)."
+        Write-Host "  WARNING: Could not remove port forwarding/hosts entry (requires admin)."
     }
     Write-Host "Instance '$Name' destroyed."
 }
