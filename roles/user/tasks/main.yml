@@ -1,3 +1,16 @@
+- name: Ensure .bash_profile sources .bashrc
+  copy:
+    dest: "/home/{{ user }}/.bash_profile"
+    content: |
+      # Source .bashrc for login shells (e.g. SSH sessions)
+      if [ -f "$HOME/.bashrc" ]; then
+          . "$HOME/.bashrc"
+      fi
+    owner: "{{ user }}"
+    group: "{{ user }}"
+    mode: "0644"
+    force: false
+
 - name: Configure git settings
   shell: |
     su -l {{ user }} -c 'git config --global {{ item.key }} "{{ item.value }}"'
