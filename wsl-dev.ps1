@@ -99,10 +99,14 @@ function Get-DevConfig {
 
     $cfg["GitEmail"] = Prompt-Field $cfg "GitEmail" "Git author email (for commits)" $cfg["GitEmail"]
 
-    if (-not [string]::IsNullOrWhiteSpace($cfg["IdentityKeyPath"])) {
+    if (-not [string]::IsNullOrWhiteSpace($cfg["IdentityKeyPath"]) -and
+        (Test-Path $cfg["IdentityKeyPath"]) -and (Test-Path "$($cfg["IdentityKeyPath"]).pub")) {
         Write-Host "  IdentityKeyPath: $($cfg["IdentityKeyPath"]) (saved)"
         $idKey = $cfg["IdentityKeyPath"]
     } else {
+        if (-not [string]::IsNullOrWhiteSpace($cfg["IdentityKeyPath"])) {
+            Write-Host "  Saved key not found: $($cfg["IdentityKeyPath"]) — re-selecting..."
+        }
         # Discover SSH private keys (files with a matching .pub, excluding VM access keys)
         $sshDir = "$env:USERPROFILE\.ssh"
         $candidates = @()
