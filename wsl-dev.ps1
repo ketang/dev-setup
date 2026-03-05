@@ -524,10 +524,37 @@ echo ''
         Write-Host "  You can still access the instance via: wsl -d $Name"
     }
 
+    # --- Step 5: Windows SSH config + agent ---
+    $sshConfigPath = "$env:USERPROFILE\.ssh\config"
+    $hostBlock = @"
+
+Host $hostname
+    HostName 127.0.0.1
+    Port $sshPort
+    User $user
+    IdentityFile $vmKeyPath
+"@
+    # Remove any existing block for this host, then append
+    if (Test-Path $sshConfigPath) {
+        $content = Get-Content $sshConfigPath -Raw
+        $content = $content -replace "(?m)\r?\nHost $hostname\r?\n(\s+\S[^\n]*\r?\n)*", ""
+        Set-Content $sshConfigPath $content.TrimEnd()
+    }
+    Add-Content $sshConfigPath $hostBlock
+    Write-Host "  SSH config updated: Host $hostname -> localhost:$sshPort"
+
+    # Add VM access key to Windows SSH agent
+    ssh-add $vmKeyPath 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  VM access key added to Windows SSH agent."
+    } else {
+        Write-Host "  WARNING: Could not add VM key to SSH agent. Run: ssh-add $vmKeyPath"
+    }
+
     Write-Host ""
     Write-Host "Instance '$Name' is ready."
     Write-Host "  Enter:  wsl -d $Name"
-    Write-Host "  SSH:    ssh -i $vmKeyPath -p $sshPort $user@$hostname"
+    Write-Host "  SSH:    ssh $hostname"
     Write-Host ""
 }
 
@@ -560,6 +587,16 @@ function Invoke-Destroy {
         Remove-Item -Force "$vmKeyPath.pub"
         Write-Host "  Removed $vmKeyPath.pub"
     }
+    # Remove SSH config block
+    $sshConfigPath = "$env:USERPROFILE\.ssh\config"
+    if (Test-Path $sshConfigPath) {
+        $content = Get-Content $sshConfigPath -Raw
+        $content = $content -replace "(?m)\r?\nHost $Name\r?\n(\s+\S[^\n]*\r?\n)*", ""
+        Set-Content $sshConfigPath $content.TrimEnd()
+        Write-Host "  Removed SSH config for Host $Name"
+    }
+    # Remove key from Windows SSH agent
+    ssh-add -d $vmKeyPath 2>$null
     try {
         $hostsCmd = "`$h = '$env:SystemRoot\System32\drivers\etc\hosts'; " +
                     "(Get-Content `$h) -notmatch '^\s*[\d\.]+\s+$Name\s*$' | Set-Content `$h"
