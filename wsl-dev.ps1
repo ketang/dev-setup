@@ -99,14 +99,49 @@ function Get-DevConfig {
 
     $cfg["GitEmail"] = Prompt-Field $cfg "GitEmail" "Git author email (for commits)" $cfg["GitEmail"]
 
-    $idKey = Prompt-Field $cfg "IdentityKeyPath" "Path to identity SSH key (e.g., C:\Users\$($cfg["User"])\.ssh\id_ed25519)" $cfg["IdentityKeyPath"]
-    if (-not (Test-Path $idKey)) {
-        Write-Error "Identity key not found at $idKey"
-        exit 1
-    }
-    if (-not (Test-Path "$idKey.pub")) {
-        Write-Error "Identity public key not found at $idKey.pub"
-        exit 1
+    if (-not [string]::IsNullOrWhiteSpace($cfg["IdentityKeyPath"])) {
+        Write-Host "  IdentityKeyPath: $($cfg["IdentityKeyPath"]) (saved)"
+        $idKey = $cfg["IdentityKeyPath"]
+    } else {
+        # Discover SSH private keys (files with a matching .pub, excluding VM access keys)
+        $sshDir = "$env:USERPROFILE\.ssh"
+        $candidates = @()
+        if (Test-Path $sshDir) {
+            $candidates = @(Get-ChildItem "$sshDir\*.pub" -File |
+                Where-Object { $_.Name -notmatch '_wsl_' } |
+                ForEach-Object { $_.FullName -replace '\.pub$', '' } |
+                Where-Object { Test-Path $_ })
+        }
+        Write-Host ""
+        Write-Host "GitHub SSH key (used for git/GitHub auth, NOT for VM access):"
+        if ($candidates.Count -gt 0) {
+            for ($i = 0; $i -lt $candidates.Count; $i++) {
+                Write-Host "  [$($i + 1)] $($candidates[$i])"
+            }
+            Write-Host "  [M] Enter path manually"
+            $choice = Read-Host "Select a key"
+            if ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le $candidates.Count) {
+                $idKey = $candidates[[int]$choice - 1]
+            } elseif ($choice -match '^[Mm]$') {
+                $idKey = Read-Host "Path to SSH private key"
+            } else {
+                Write-Error "Invalid selection."
+                exit 1
+            }
+        } else {
+            Write-Host "  No SSH keys found in $sshDir"
+            $idKey = Read-Host "Path to SSH private key"
+        }
+        if (-not (Test-Path $idKey)) {
+            Write-Error "Key not found at $idKey"
+            exit 1
+        }
+        if (-not (Test-Path "$idKey.pub")) {
+            Write-Error "Public key not found at $idKey.pub"
+            exit 1
+        }
+        $cfg["IdentityKeyPath"] = $idKey
+        Save-Config $cfg
     }
 
     $cfg["SetupRepo"] = Prompt-Field $cfg "SetupRepo" "dev-setup repo SSH URL (e.g., git@github.com:org/dev-setup.git)" $cfg["SetupRepo"]
