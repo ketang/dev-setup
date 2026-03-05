@@ -17,12 +17,19 @@
 
 - name: Clone project repos
   shell: |
-    export SSH_AUTH_SOCK="{{ lookup('env', 'SSH_AUTH_SOCK') }}"
+    SSH_AUTH_SOCK="{{ lookup('env', 'SSH_AUTH_SOCK') }}"
+    GIT_SSH_COMMAND="{{ lookup('env', 'GIT_SSH_COMMAND') }}"
+    SSH_ENV=""
+    if [ -n "$GIT_SSH_COMMAND" ]; then
+      SSH_ENV="GIT_SSH_COMMAND=$GIT_SSH_COMMAND"
+    elif [ -n "$SSH_AUTH_SOCK" ]; then
+      SSH_ENV="SSH_AUTH_SOCK=$SSH_AUTH_SOCK"
+    fi
     dest="/home/{{ user }}/project/{{ item | regex_replace('.*[:/]([^/]+)\\.git$', '\\1') }}"
     if [ -d "$dest" ]; then
-      su -l {{ user }} -c "cd $dest && SSH_AUTH_SOCK=$SSH_AUTH_SOCK git pull --ff-only"
+      su -l {{ user }} -c "cd $dest && $SSH_ENV git pull --ff-only"
     else
-      su -l {{ user }} -c "SSH_AUTH_SOCK=$SSH_AUTH_SOCK git clone '{{ item }}' '$dest'"
+      su -l {{ user }} -c "$SSH_ENV git clone '{{ item }}' '$dest'"
     fi
   loop: "{{ repos }}"
   when: repos | length > 0

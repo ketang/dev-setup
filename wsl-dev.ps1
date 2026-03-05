@@ -268,6 +268,18 @@ function Invoke-Create {
 
     $hostname = $Name
 
+    # --- Verify Windows SSH agent has the GitHub key loaded ---
+    $agentKeys = ssh-add -L 2>&1
+    if ($LASTEXITCODE -ne 0 -or $agentKeys -match "Could not open|error") {
+        Write-Error "Windows SSH agent is not running. Start it with: Get-Service ssh-agent | Set-Service -StartupType Automatic; Start-Service ssh-agent"
+        exit 1
+    }
+    if ($agentKeys -match "no identities") {
+        Write-Error "No keys in Windows SSH agent. Add your GitHub key with: ssh-add $($config.IdentityKeyPath)"
+        exit 1
+    }
+    Write-Host "  Windows SSH agent has keys loaded."
+
     # --- Generate VM access key (separate from identity key) ---
     $vmKeyPath = "$env:USERPROFILE\.ssh\id_ed25519_wsl_$Name"
     if (-not (Test-Path $vmKeyPath)) {
@@ -333,7 +345,6 @@ function Invoke-Create {
     Copy-Item $vmKeyPath "$stageDir\vm_access_key"
     Copy-Item "$vmKeyPath.pub" "$stageDir\vm_access_key.pub"
     Copy-Item "$($config.IdentityKeyPath).pub" "$stageDir\id_ed25519.pub"
-    Copy-Item $config.IdentityKeyPath "$stageDir\identity_key"
 
     $dotfilesRepo = if ($config.Dotfiles) { $config.Dotfiles } else { "" }
 
@@ -355,9 +366,7 @@ function Invoke-Create {
 
     # Two provision scripts:
     #   1. provision-root.sh — runs as root: installs SSH keys, apt packages, Ansible
-    #   2. provision-user.sh — runs as the user: ssh-agent, git clones, Ansible
-    #
-    # Splitting avoids the sudo-strips-SSH_AUTH_SOCK problem.
+    #   2. provision-user.sh — runs as the user: git clones, Ansible (uses Windows SSH agent via ssh.exe)
 
     $rootScript = @"
 #!/bin/bash
@@ -400,18 +409,15 @@ set -euo pipefail
 
 SETUP_REPO="$setupRepo"
 
-# --- Start temporary ssh-agent with identity key (for git clones during provisioning) ---
-echo '=== Loading identity key for provisioning ==='
-echo 'You may be prompted for your SSH key passphrase.'
-echo ''
-eval "`$(ssh-agent -s)" > /dev/null
-ssh-add /tmp/stage/identity_key
-
-# Verify the agent is working
-echo ''
-echo '=== Verifying SSH agent ==='
-ssh-add -l
-echo '  Agent has key loaded (temporary, for provisioning only).'
+# --- Use Windows SSH agent via ssh.exe (no private key copy needed) ---
+echo '=== Configuring SSH for provisioning ==='
+WIN_SSH="/mnt/c/Windows/System32/OpenSSH/ssh.exe"
+if [ ! -x "`$WIN_SSH" ]; then
+    echo "ERROR: Windows SSH not found at `$WIN_SSH"
+    exit 1
+fi
+export GIT_SSH_COMMAND="`$WIN_SSH"
+echo "  Using Windows SSH agent via `$WIN_SSH"
 
 # --- Clone dev-setup repo ---
 echo ''
@@ -428,7 +434,7 @@ fi
 echo ''
 echo '=== Running Ansible playbook ==='
 cd ~/dev-setup
-sudo --preserve-env=SSH_AUTH_SOCK ansible-playbook playbook.yml --diff -e @/tmp/stage/extra-vars.json
+sudo --preserve-env=GIT_SSH_COMMAND ansible-playbook playbook.yml --diff -e @/tmp/stage/extra-vars.json
 
 # --- Dotfiles (after packages so tools like stow are available) ---
 DOTFILES_REPO="$dotfilesRepo"
@@ -448,8 +454,7 @@ if [ -n "`$DOTFILES_REPO" ]; then
     fi
 fi
 
-# --- Cleanup (kill temp agent; remove staged identity key and all stage files) ---
-kill `$SSH_AGENT_PID 2>/dev/null
+# --- Cleanup ---
 sudo rm -rf /tmp/stage
 
 echo ''
