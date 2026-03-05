@@ -45,11 +45,11 @@
 
 # --- Windows SSH agent forwarding via npiperelay ---
 
-- name: Install npiperelay
+- name: Install npiperelay (cross-compile for Windows)
   shell: |
-    su -l {{ user }} -c 'GOPATH="$HOME/go" PATH="/usr/local/go/bin:$PATH" go install github.com/jstarks/npiperelay@latest'
+    su -l {{ user }} -c 'GOOS=windows GOARCH=amd64 GOPATH="$HOME/go" PATH="/usr/local/go/bin:$PATH" go install github.com/jstarks/npiperelay@latest'
   args:
-    creates: "/home/{{ user }}/go/bin/npiperelay"
+    creates: "/home/{{ user }}/go/bin/windows_amd64/npiperelay.exe"
 
 - name: Configure Windows SSH agent forwarding
   copy:
@@ -61,7 +61,7 @@
         if ! ss -a 2>/dev/null | grep -q "$SSH_AUTH_SOCK"; then
           rm -f "$SSH_AUTH_SOCK"
           setsid socat UNIX-LISTEN:"$SSH_AUTH_SOCK",fork \
-            EXEC:"$HOME/go/bin/npiperelay -ei -s //./pipe/openssh-ssh-agent",nofork &>/dev/null &
+            EXEC:"$HOME/go/bin/windows_amd64/npiperelay.exe -ei -s //./pipe/openssh-ssh-agent",nofork &>/dev/null &
           disown
         fi
       fi
