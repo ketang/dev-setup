@@ -1,4 +1,4 @@
-- name: Ensure .bash_profile sources .bashrc
+- name: Ensure .bash_profile sources .bashrc then WSL agent override
   copy:
     dest: "/home/{{ user }}/.bash_profile"
     content: |
@@ -6,10 +6,14 @@
       if [ -f "$HOME/.bashrc" ]; then
           . "$HOME/.bashrc"
       fi
+      # Override SSH_AUTH_SOCK after .bashrc (so it wins over keychain etc.)
+      if [ -f /etc/profile.d/wsl-ssh-agent.sh ]; then
+          . /etc/profile.d/wsl-ssh-agent.sh
+      fi
     owner: "{{ user }}"
     group: "{{ user }}"
     mode: "0644"
-    force: false
+    force: true
 
 - name: Configure git settings
   shell: |
