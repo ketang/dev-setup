@@ -13,7 +13,7 @@
     owner: "{{ user }}"
     group: "{{ user }}"
     mode: "0644"
-    force: true
+    force: false
 
 - name: Configure git settings
   shell: |
