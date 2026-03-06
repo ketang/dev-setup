@@ -42,7 +42,7 @@
     elif [ -n "$SSH_AUTH_SOCK" ]; then
       SSH_ENV="SSH_AUTH_SOCK=$SSH_AUTH_SOCK"
     fi
-    dest="/home/{{ user }}/project/{{ item | regex_replace('.*[:/]([^/]+)\\.git$', '\\1') }}"
+    dest="/home/{{ user }}/project/{{ item | regex_replace('.*[:/]([^/]+?)(\\.git)?$', '\\1') }}"
     if [ -d "$dest" ]; then
       su -l {{ user }} -c "cd $dest && $SSH_ENV git pull --ff-only"
     else

@@ -524,7 +524,27 @@ echo ''
         Write-Host "  You can still access the instance via: wsl -d $Name"
     }
 
-    # --- Step 5: Windows SSH config + agent ---
+    # --- Step 5: Auto-start WSL instance at logon ---
+    $taskName = "WSL-AutoStart-$Name"
+    $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($existingTask) {
+        Write-Host "  Scheduled task '$taskName' already exists."
+    } else {
+        Write-Host "Registering scheduled task to auto-start '$Name' at logon..."
+        try {
+            $action = New-ScheduledTaskAction -Execute "wsl.exe" -Argument "-d $Name -- sleep infinity"
+            $trigger = New-ScheduledTaskTrigger -AtLogOn
+            $trigger.UserId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+            $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
+            Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings | Out-Null
+            Write-Host "  Scheduled task '$taskName' registered."
+        } catch {
+            Write-Host "  WARNING: Could not register scheduled task: $_"
+            Write-Host "  WSL instance won't auto-start. You can start it manually with: wsl -d $Name"
+        }
+    }
+
+    # --- Step 6: Windows SSH config + agent ---
     $sshConfigPath = "$env:USERPROFILE\.ssh\config"
     $hostBlock = @"
 
@@ -572,6 +592,13 @@ function Invoke-Destroy {
     $sshPort = $inst.SSHPort
 
     Write-Host "Destroying instance '$Name'..."
+    # Remove auto-start scheduled task
+    $taskName = "WSL-AutoStart-$Name"
+    $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($existingTask) {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+        Write-Host "  Removed scheduled task '$taskName'"
+    }
     wsl --unregister $Name 2>$null
     $instancePath = "$instanceRoot\$Name"
     if (Test-Path $instancePath) {

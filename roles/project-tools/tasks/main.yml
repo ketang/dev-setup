@@ -8,10 +8,12 @@
   args:
     creates: "/home/{{ user }}/go/bin/bd"
 
-# --- Claude Code (via npm) ---
+# --- Claude Code (native install with auto-update support) ---
 
 - name: Install Claude Code
-  npm:
-    name: "@anthropic-ai/claude-code"
-    global: true
-    state: present
+  shell: |
+    curl -fsSL https://claude.ai/install.sh | sh
+  args:
+    creates: /usr/local/bin/claude
+  become: true
+  become_user: "{{ user }}"
