@@ -1,0 +1,21 @@
+- name: Add GitHub CLI apt key
+  shell: curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | tee /usr/share/keyrings/githubcli-archive-keyring.gpg > /dev/null
+  args:
+    creates: /usr/share/keyrings/githubcli-archive-keyring.gpg
+
+- name: Add GitHub CLI apt repository
+  copy:
+    dest: /etc/apt/sources.list.d/github-cli.list
+    content: "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\n"
+    mode: "0644"
+  register: gh_repo
+
+- name: Update apt cache for GitHub CLI
+  apt:
+    update_cache: true
+  when: gh_repo.changed
+
+- name: Install GitHub CLI
+  apt:
+    name: gh
+    state: present

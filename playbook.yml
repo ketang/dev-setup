@@ -15,6 +15,7 @@
     - postgresql
     - playwright
     - ssh
+    - github-cli
     - netbird
     - project-tools
     - user

@@ -422,18 +422,13 @@ echo "  Using Windows SSH agent via `$WIN_SSH"
 # --- Clone dev-setup repo ---
 echo ''
 echo '=== Cloning dev-setup repo ==='
-if [ -d ~/dev-setup ]; then
-    echo '  Repo exists, pulling latest...'
-    cd ~/dev-setup && git pull --ff-only
-else
-    echo "  Cloning `$SETUP_REPO ..."
-    git clone --depth 1 "`$SETUP_REPO" ~/dev-setup
-fi
+echo "  Cloning `$SETUP_REPO ..."
+git clone --depth 1 "`$SETUP_REPO" /tmp/dev-setup
 
 # --- Run Ansible (installs all packages) ---
 echo ''
 echo '=== Running Ansible playbook ==='
-cd ~/dev-setup
+cd /tmp/dev-setup
 sudo --preserve-env=GIT_SSH_COMMAND ansible-playbook playbook.yml --diff -e @/tmp/stage/extra-vars.json
 
 # --- Dotfiles (after packages so tools like stow are available) ---
@@ -455,7 +450,7 @@ if [ -n "`$DOTFILES_REPO" ]; then
 fi
 
 # --- Cleanup ---
-sudo rm -rf /tmp/stage
+sudo rm -rf /tmp/stage /tmp/dev-setup
 
 echo ''
 echo '========================================='
@@ -463,7 +458,8 @@ echo '  Provisioning complete.'
 echo '========================================='
 echo ''
 echo 'Remaining manual steps:'
-echo '  1. netbird up         (authenticate to mesh VPN)'
+echo '  Run ~/project/dev-setup/post-provision.sh to complete interactive setup'
+echo '  (GitHub auth, repo cloning, and mesh VPN authentication)'
 echo ''
 "@
     Write-Utf8NoBom "$stageDir\provision-user.sh" $userScript
