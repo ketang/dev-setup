@@ -12,10 +12,24 @@
       {{ ansible_facts["distribution_release"] }}-pgdg main
     filename: pgdg
 
-- name: Install PostgreSQL client and PostGIS
+- name: Install PostgreSQL server and client
   apt:
     name:
+      - "postgresql-{{ postgresql_version }}"
       - "postgresql-client-{{ postgresql_version }}"
       - libpq-dev
     state: present
     update_cache: true
+
+- name: Enable and start PostgreSQL
+  systemd:
+    name: postgresql
+    enabled: true
+    state: started
+
+- name: Create dev user with superuser privileges
+  shell: |
+    sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='{{ user }}'" | grep -q 1 \
+      || sudo -u postgres createuser --superuser {{ user }}
+  args:
+    executable: /bin/bash
