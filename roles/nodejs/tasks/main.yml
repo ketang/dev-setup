@@ -23,3 +23,9 @@
     global: true
     version: "{{ pnpm_version }}"
     state: present
+
+- name: Install OpenAI Codex CLI globally
+  npm:
+    name: "@openai/codex"
+    global: true
+    state: latest

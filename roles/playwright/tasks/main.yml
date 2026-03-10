@@ -56,6 +56,12 @@
       - dbus
     state: present
 
+- name: Install Playwright CLI globally
+  npm:
+    name: "@playwright/cli"
+    global: true
+    state: latest
+
 - name: Install browsers for Playwright via snap
   community.general.snap:
     name:
