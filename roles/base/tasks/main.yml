@@ -32,6 +32,10 @@
       - snapd
       - bubblewrap
       - xauth
+      - x11-apps
+      - xvfb
+      - feh
+      - xdg-utils
     state: present
 
 - name: Install glow via snap
@@ -75,3 +79,31 @@
 - name: Set timezone
   community.general.timezone:
     name: "{{ timezone }}"
+
+- name: Ensure mount points exist for optional fstab entries
+  file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ fstab_entries }}"
+  when:
+    - fstab_entries | length > 0
+    - item.path is defined
+    - item.path not in ['none', 'swap']
+
+- name: Remove optional fstab entries block when unset
+  blockinfile:
+    path: /etc/fstab
+    marker: "# {mark} ANSIBLE MANAGED - optional mounts"
+    state: absent
+  when: fstab_entries | length == 0
+
+- name: Manage optional fstab entries
+  blockinfile:
+    path: /etc/fstab
+    marker: "# {mark} ANSIBLE MANAGED - optional mounts"
+    block: |
+      {% for entry in fstab_entries %}
+      {{ entry.src }} {{ entry.path }} {{ entry.fstype }} {{ entry.opts | default('defaults,nofail') }} {{ entry.dump | default(0) }} {{ entry.passno | default(0) }}
+      {% endfor %}
+  when: fstab_entries | length > 0
