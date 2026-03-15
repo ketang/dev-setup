@@ -36,6 +36,7 @@
       - xvfb
       - feh
       - xdg-utils
+      - strace
     state: present
 
 - name: Install glow via snap
