@@ -17,3 +17,10 @@
     creates: /usr/local/bin/claude
   become: true
   become_user: "{{ user }}"
+
+- name: Install project tool snaps
+  community.general.snap:
+    name:
+      - doctl
+      - opentofu
+    state: present
