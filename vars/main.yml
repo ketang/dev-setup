@@ -14,3 +14,4 @@ ssh_port: 2222
 hostname: ""
 timezone: "Etc/UTC"
 repos: []
+fstab_entries: []

@@ -2,12 +2,21 @@
   "User": "",
   "GitName": "",
   "GitEmail": "",
-  "SSHKeyPath": "",
+  "IdentityKeyPath": "",
   "SetupRepo": "git@github.com:YOUR_ORG/dev-setup.git",
   "Dotfiles": "",
   "Repos": [],
   "Instances": {
-    "dev": { "SSHPort": 2222 },
+    "dev": {
+      "SSHPort": 2222,
+      "HomeMount": {
+        "Src": "UUID=01234567-89ab-cdef-0123-456789abcdef",
+        "FSType": "ext4",
+        "Opts": "defaults,nofail",
+        "Dump": 0,
+        "PassNo": 2
+      }
+    },
     "dev-2": { "SSHPort": 2223 }
   }
 }

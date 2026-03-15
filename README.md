@@ -29,6 +29,7 @@ First run prompts for:
 - SSH URL of this dev-setup repo
 - Dotfiles repo SSH URL (optional — cloned to `~/dotfiles`, runs `install.sh`)
 - Project repos to clone (SSH URLs)
+- Optional per-instance `/home` mount (device/UUID + filesystem details)
 
 Everything is saved to a single config file at
 `%LOCALAPPDATA%\WSLDev\config.json` and reused on rebuilds.
@@ -40,7 +41,7 @@ Everything is saved to a single config file at
   "User": "jdoe",
   "GitName": "Jane Doe",
   "GitEmail": "jane@example.com",
-  "SSHKeyPath": "C:\\Users\\jdoe\\.ssh\\id_ed25519",
+  "IdentityKeyPath": "C:\\Users\\jdoe\\.ssh\\id_ed25519",
   "SetupRepo": "git@github.com:jdoe/dev-setup.git",
   "Dotfiles": "git@github.com:jdoe/dotfiles.git",
   "Repos": [
@@ -48,7 +49,16 @@ Everything is saved to a single config file at
     "git@github.com:jdoe/project-beta.git"
   ],
   "Instances": {
-    "dev":   { "SSHPort": 2222 },
+    "dev": {
+      "SSHPort": 2222,
+      "HomeMount": {
+        "Src": "UUID=01234567-89ab-cdef-0123-456789abcdef",
+        "FSType": "ext4",
+        "Opts": "defaults,nofail",
+        "Dump": 0,
+        "PassNo": 2
+      }
+    },
     "dev-2": { "SSHPort": 2223 }
   }
 }
@@ -68,7 +78,9 @@ Delete it to re-prompt on next create.
 ```
 
 The `-Name` parameter selects which entry in the `Instances` map to use for
-SSH port assignment. Unlisted names get an auto-assigned port.
+SSH port assignment and optional `/home` mount settings. Unlisted names get an
+auto-assigned port and will be prompted for the `/home` mount option the first
+time they are created.
 
 ## What gets installed
 
@@ -84,7 +96,7 @@ SSH port assignment. Unlisted names get an auto-assigned port.
 | playwright | Browser GUI dependencies for headed Playwright under WSLg |
 | ssh | OpenSSH server on configurable port |
 | netbird | NetBird mesh VPN agent |
-| project-tools | Claude CLI, beads issue tracker |
+| project-tools | Claude CLI, beads issue tracker, doctl, OpenTofu |
 | user | Git config, project directory, repo cloning via SSH |
 
 ## Nuke and rebuild
@@ -134,6 +146,8 @@ ansible-playbook playbook.yml --diff
 - **Add a tool**: create a new role under `roles/`, add it to `playbook.yml`
 - **Change repos or identity**: edit `%LOCALAPPDATA%\WSLDev\config.json`
 - **Add an instance**: add an entry to the `Instances` map in `config.json`
+- **Per-instance `/home` mount**: set `Instances.<name>.HomeMount` in `%LOCALAPPDATA%\WSLDev\config.json`; it is applied before user creation so provisioning lands on that filesystem
+- **Other optional mounts**: set `fstab_entries` in `vars/main.yml` or extra-vars for machine-specific `/etc/fstab` entries that do not need first-boot handling
 
 ## File layout
 

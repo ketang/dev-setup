@@ -46,6 +46,54 @@ function Save-Config {
     $Config | ConvertTo-Json -Depth 5 | Set-Content $configPath
 }
 
+function New-HomeMountConfig {
+    param([object]$Saved)
+
+    if ($null -ne $Saved -and -not [string]::IsNullOrWhiteSpace([string]$Saved.Src)) {
+        $src = [string]$Saved.Src
+        $fsType = if ([string]::IsNullOrWhiteSpace([string]$Saved.FSType)) { "ext4" } else { [string]$Saved.FSType }
+        $opts = if ([string]::IsNullOrWhiteSpace([string]$Saved.Opts)) { "defaults,nofail" } else { [string]$Saved.Opts }
+        $dump = if ($null -eq $Saved.Dump -or [string]::IsNullOrWhiteSpace([string]$Saved.Dump)) { 0 } else { [int]$Saved.Dump }
+        $passNo = if ($null -eq $Saved.PassNo -or [string]::IsNullOrWhiteSpace([string]$Saved.PassNo)) { 2 } else { [int]$Saved.PassNo }
+        Write-Host "  HomeMount: $src -> /home ($fsType, $opts) (saved)"
+        return [PSCustomObject]@{
+            Src    = $src
+            FSType = $fsType
+            Opts   = $opts
+            Dump   = $dump
+            PassNo = $passNo
+        }
+    }
+
+    Write-Host ""
+    Write-Host "Optional separate filesystem for /home:"
+    $src = Read-Host "  Source device/UUID (e.g. UUID=... or /dev/disk/by-uuid/..., empty to skip)"
+    if ([string]::IsNullOrWhiteSpace($src)) {
+        Write-Host "  HomeMount: (none)"
+        return $null
+    }
+
+    $fsType = Read-Host "  Filesystem type [ext4]"
+    if ([string]::IsNullOrWhiteSpace($fsType)) { $fsType = "ext4" }
+
+    $opts = Read-Host "  Mount options [defaults,nofail]"
+    if ([string]::IsNullOrWhiteSpace($opts)) { $opts = "defaults,nofail" }
+
+    $dump = Read-Host "  dump value [0]"
+    if ([string]::IsNullOrWhiteSpace($dump)) { $dump = 0 } else { $dump = [int]$dump }
+
+    $passNo = Read-Host "  fsck pass number [2]"
+    if ([string]::IsNullOrWhiteSpace($passNo)) { $passNo = 2 } else { $passNo = [int]$passNo }
+
+    return [PSCustomObject]@{
+        Src    = $src
+        FSType = $fsType
+        Opts   = $opts
+        Dump   = $dump
+        PassNo = $passNo
+    }
+}
+
 function Prompt-Field {
     param(
         [hashtable]$Config,
@@ -207,7 +255,10 @@ function Get-InstanceConfig {
     # Default for unlisted instances: auto-assign port based on instance count
     $basePort = 2222
     $existing = @($Config.Instances.PSObject.Properties).Count
-    return [PSCustomObject]@{ SSHPort = $basePort + $existing }
+    return [PSCustomObject]@{
+        SSHPort = $basePort + $existing
+        HomeMount = $null
+    }
 }
 
 function Write-Utf8NoBom {
@@ -215,6 +266,11 @@ function Write-Utf8NoBom {
     # Ensure Unix line endings (LF only) — bash chokes on \r\n
     $Content = $Content -replace "`r`n", "`n"
     [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
+}
+
+function ConvertTo-BashSingleQuoted {
+    param([string]$Value)
+    return "'" + ($Value -replace "'", "'\"'\"'") + "'"
 }
 
 # ---------------------------------------------------------------------------
@@ -256,11 +312,24 @@ function Invoke-Create {
 
     $inst = Get-InstanceConfig -Config $config -InstanceName $Name
     $sshPort = $inst.SSHPort
+    $homeMount = $inst.HomeMount
 
-    # Save instance config if new
     $existingInst = $config.Instances.PSObject.Properties | Where-Object { $_.Name -eq $Name }
-    if (-not $existingInst) {
-        $config.Instances | Add-Member -NotePropertyName $Name -NotePropertyValue ([PSCustomObject]@{ SSHPort = $sshPort }) -Force
+    $needsHomeMountPrompt = (-not $existingInst) -or (-not ($inst.PSObject.Properties.Name -contains "HomeMount"))
+    if ($needsHomeMountPrompt) {
+        $homeMount = New-HomeMountConfig
+    } elseif ($null -ne $homeMount -and -not [string]::IsNullOrWhiteSpace([string]$homeMount.Src)) {
+        $homeMount = New-HomeMountConfig -Saved $homeMount
+    } else {
+        Write-Host "  HomeMount: (none)"
+    }
+
+    # Save instance config if new or missing the current schema
+    if ((-not $existingInst) -or $needsHomeMountPrompt) {
+        $config.Instances | Add-Member -NotePropertyName $Name -NotePropertyValue ([PSCustomObject]@{
+            SSHPort   = $sshPort
+            HomeMount = $homeMount
+        }) -Force
         $cfg = [ordered]@{}
         foreach ($prop in $config.PSObject.Properties) { $cfg[$prop.Name] = $prop.Value }
         Save-Config $cfg
@@ -334,6 +403,52 @@ function Invoke-Create {
         Start-Sleep -Seconds 3
     }
 
+    if ($null -ne $homeMount -and -not [string]::IsNullOrWhiteSpace([string]$homeMount.Src)) {
+        $homeMountSrc = ConvertTo-BashSingleQuoted ([string]$homeMount.Src)
+        $homeMountFsType = ConvertTo-BashSingleQuoted ([string]$homeMount.FSType)
+        $homeMountOpts = ConvertTo-BashSingleQuoted ([string]$homeMount.Opts)
+        $homeMountDump = [int]$homeMount.Dump
+        $homeMountPassNo = [int]$homeMount.PassNo
+
+        Write-Host "Configuring /home mount before provisioning..."
+        wsl -d $Name -u root --exec bash -c @"
+set -euo pipefail
+FSTAB=/etc/fstab
+BEGIN_MARKER='# BEGIN ANSIBLE MANAGED - optional mounts'
+END_MARKER='# END ANSIBLE MANAGED - optional mounts'
+HOME_MOUNT_SRC=$homeMountSrc
+HOME_MOUNT_FSTYPE=$homeMountFsType
+HOME_MOUNT_OPTS=$homeMountOpts
+HOME_MOUNT_DUMP=$homeMountDump
+HOME_MOUNT_PASSNO=$homeMountPassNo
+
+tmp_file=`$(mktemp)
+awk -v begin="`$BEGIN_MARKER" -v end="`$END_MARKER" '
+  `$0 == begin { skip=1; next }
+  `$0 == end { skip=0; next }
+  !skip { print }
+' "`$FSTAB" > "`$tmp_file"
+mv "`$tmp_file" "`$FSTAB"
+
+printf '\n%s\n%s /home %s %s %s %s\n%s\n' \
+  "`$BEGIN_MARKER" \
+  "`$HOME_MOUNT_SRC" \
+  "`$HOME_MOUNT_FSTYPE" \
+  "`$HOME_MOUNT_OPTS" \
+  "`$HOME_MOUNT_DUMP" \
+  "`$HOME_MOUNT_PASSNO" \
+  "`$END_MARKER" >> "`$FSTAB"
+
+mkdir -p /home
+if ! mountpoint -q /home; then
+  mount /home
+fi
+"@
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to configure and mount /home. Fix the HomeMount setting in $configPath and retry."
+        }
+    }
+
     # Ensure user exists (idempotent — runs on both new and re-provision)
     Write-Host "Ensuring user '$user' exists..."
     wsl -d $Name -u root --exec bash -c "set -euo pipefail; id $user &>/dev/null || useradd -m -s /bin/bash $user; usermod -aG sudo $user; echo '$user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user; grep -q '^\[user\]' /etc/wsl.conf || printf '\n[user]\ndefault=$user\n' >> /etc/wsl.conf"
@@ -347,6 +462,17 @@ function Invoke-Create {
     Copy-Item "$($config.IdentityKeyPath).pub" "$stageDir\id_ed25519.pub"
 
     $dotfilesRepo = if ($config.Dotfiles) { $config.Dotfiles } else { "" }
+    $fstabEntries = @()
+    if ($null -ne $homeMount -and -not [string]::IsNullOrWhiteSpace([string]$homeMount.Src)) {
+        $fstabEntries = @([ordered]@{
+            src    = [string]$homeMount.Src
+            path   = "/home"
+            fstype = [string]$homeMount.FSType
+            opts   = [string]$homeMount.Opts
+            dump   = [int]$homeMount.Dump
+            passno = [int]$homeMount.PassNo
+        })
+    }
 
     # Get IANA timezone from the WSL instance (inherits from Windows)
     $ianaTz = (wsl -d $Name -u root --exec cat /etc/timezone 2>$null)
@@ -361,6 +487,7 @@ function Invoke-Create {
         timezone  = $ianaTz
         dotfiles  = $dotfilesRepo
         repos     = @($config.Repos | ForEach-Object { $_ })
+        fstab_entries = $fstabEntries
     }
     Write-Utf8NoBom "$stageDir\extra-vars.json" ($extraVars | ConvertTo-Json -Depth 5)
 
