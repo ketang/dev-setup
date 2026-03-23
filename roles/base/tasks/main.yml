@@ -6,6 +6,8 @@
 - name: Install base packages
   apt:
     name:
+      - bind9-dnsutils
+      - bind9-host
       - build-essential
       - curl
       - wget
