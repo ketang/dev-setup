@@ -94,6 +94,7 @@ time they are created.
 | python | Python 3 + pip + pyyaml |
 | postgresql | PostgreSQL client + libpq-dev (server runs via Docker) |
 | playwright | Browser GUI dependencies for headed Playwright under WSLg |
+| github-cli | GitHub CLI (`gh`) via the official apt repository |
 | ssh | OpenSSH server on configurable port |
 | netbird | NetBird mesh VPN agent |
 | project-tools | Claude CLI, beads issue tracker, doctl, OpenTofu |
