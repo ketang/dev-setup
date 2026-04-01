@@ -6,6 +6,8 @@
 - name: Install base packages
   apt:
     name:
+      - bind9-dnsutils
+      - bind9-host
       - build-essential
       - curl
       - wget
@@ -21,6 +23,7 @@
       - make
       - cmake
       - pkg-config
+      - libicu-dev
       - ca-certificates
       - gnupg
       - lsb-release
@@ -28,6 +31,7 @@
       - apt-transport-https
       - keychain
       - locales
+      - wamerican
       - net-tools
       - socat
       - snapd

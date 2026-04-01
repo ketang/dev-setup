@@ -86,7 +86,7 @@ time they are created.
 
 | Role | What it provides |
 |---|---|
-| base | build-essential, git, curl, tmux, ripgrep, glow, jq, cmake, locales |
+| base | build-essential, git, curl, tmux, ripgrep, glow, jq, cmake, libicu-dev, locales |
 | docker | Docker Engine + docker-compose-plugin (not Docker Desktop) |
 | golang | Go (version in `vars/main.yml`), air, golangci-lint |
 | rust | Rust stable via rustup, libz3-dev, libclang-dev |
@@ -94,6 +94,7 @@ time they are created.
 | python | Python 3 + pip + pyyaml |
 | postgresql | PostgreSQL client + libpq-dev (server runs via Docker) |
 | playwright | Browser GUI dependencies for headed Playwright under WSLg |
+| github-cli | GitHub CLI (`gh`) via the official apt repository |
 | ssh | OpenSSH server on configurable port |
 | netbird | NetBird mesh VPN agent |
 | project-tools | Claude CLI, beads issue tracker, doctl, OpenTofu |
