@@ -86,7 +86,7 @@ time they are created.
 
 | Role | What it provides |
 |---|---|
-| base | build-essential, git, curl, tmux, ripgrep, glow, jq, cmake, locales |
+| base | build-essential, git, curl, tmux, ripgrep, glow, jq, cmake, libicu-dev, locales |
 | docker | Docker Engine + docker-compose-plugin (not Docker Desktop) |
 | golang | Go (version in `vars/main.yml`), air, golangci-lint |
 | rust | Rust stable via rustup, libz3-dev, libclang-dev |

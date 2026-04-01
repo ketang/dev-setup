@@ -23,6 +23,7 @@
       - make
       - cmake
       - pkg-config
+      - libicu-dev
       - ca-certificates
       - gnupg
       - lsb-release
