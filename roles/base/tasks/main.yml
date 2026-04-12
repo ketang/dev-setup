@@ -87,6 +87,13 @@
   community.general.timezone:
     name: "{{ timezone }}"
 
+- name: Allow perf tools for non-root users
+  ansible.posix.sysctl:
+    name: kernel.perf_event_paranoid
+    value: "1"
+    sysctl_file: /etc/sysctl.d/60-perf.conf
+    reload: true
+
 - name: Ensure mount points exist for optional fstab entries
   file:
     path: "{{ item.path }}"

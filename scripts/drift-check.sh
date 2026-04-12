@@ -166,7 +166,20 @@ echo "$npm_globals" | grep -q '/playwright$' \
 echo "${C_CYA}Checking Python packages...${C_RST}"
 python3 -c 'import yaml' 2>/dev/null || report_missing "python: pyyaml"
 
-# ---------- 8. Systemd services ----------
+# ---------- 8. Sysctl ----------
+
+EXPECTED_PERF_PARANOID=1
+actual_perf=$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null)
+if [ "$actual_perf" != "$EXPECTED_PERF_PARANOID" ]; then
+    report_modified "sysctl: kernel.perf_event_paranoid is $actual_perf, expected $EXPECTED_PERF_PARANOID"
+fi
+if [ ! -f /etc/sysctl.d/60-perf.conf ]; then
+    report_missing "file: /etc/sysctl.d/60-perf.conf"
+elif ! grep -q 'kernel.perf_event_paranoid' /etc/sysctl.d/60-perf.conf 2>/dev/null; then
+    report_modified "sysctl: /etc/sysctl.d/60-perf.conf exists but missing perf_event_paranoid setting"
+fi
+
+# ---------- 9. Systemd services ----------
 
 echo "${C_CYA}Checking systemd services...${C_RST}"
 for svc in docker ssh postgresql netbird; do
