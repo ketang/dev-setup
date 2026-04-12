@@ -14,7 +14,7 @@
   shell: |
     curl -fsSL https://claude.ai/install.sh | sh
   args:
-    creates: /usr/local/bin/claude
+    creates: "/home/{{ user }}/.local/bin/claude"
   become: true
   become_user: "{{ user }}"
 

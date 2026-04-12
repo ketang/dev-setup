@@ -1,9 +1,9 @@
 # Versions — update these when upgrading toolchains
-go_version: "1.24.4"
+go_version: "1.26.1"
 node_version: "22"
 pnpm_version: "9"
 rust_channel: "stable"
-postgresql_version: "17"
+postgresql_version: "18"
 python_version: "3"
 
 # Defaults — overridden by extra-vars from wsl-dev.ps1

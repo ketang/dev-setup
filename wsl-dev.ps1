@@ -403,49 +403,24 @@ function Invoke-Create {
         Start-Sleep -Seconds 3
     }
 
+    # Mount /home before user creation if a separate filesystem is configured.
+    # This is a temporary mount only — Ansible owns the fstab entry via the
+    # fstab_entries extra-var passed later in provisioning.
     if ($null -ne $homeMount -and -not [string]::IsNullOrWhiteSpace([string]$homeMount.Src)) {
         $homeMountSrc = ConvertTo-BashSingleQuoted ([string]$homeMount.Src)
         $homeMountFsType = ConvertTo-BashSingleQuoted ([string]$homeMount.FSType)
         $homeMountOpts = ConvertTo-BashSingleQuoted ([string]$homeMount.Opts)
-        $homeMountDump = [int]$homeMount.Dump
-        $homeMountPassNo = [int]$homeMount.PassNo
 
-        Write-Host "Configuring /home mount before provisioning..."
+        Write-Host "Mounting /home from $($homeMount.Src) before provisioning..."
         wsl -d $Name -u root --exec bash -c @"
 set -euo pipefail
-FSTAB=/etc/fstab
-BEGIN_MARKER='# BEGIN ANSIBLE MANAGED - optional mounts'
-END_MARKER='# END ANSIBLE MANAGED - optional mounts'
-HOME_MOUNT_SRC=$homeMountSrc
-HOME_MOUNT_FSTYPE=$homeMountFsType
-HOME_MOUNT_OPTS=$homeMountOpts
-HOME_MOUNT_DUMP=$homeMountDump
-HOME_MOUNT_PASSNO=$homeMountPassNo
-
-tmp_file=`$(mktemp)
-awk -v begin="`$BEGIN_MARKER" -v end="`$END_MARKER" '
-  `$0 == begin { skip=1; next }
-  `$0 == end { skip=0; next }
-  !skip { print }
-' "`$FSTAB" > "`$tmp_file"
-mv "`$tmp_file" "`$FSTAB"
-
-printf '\n%s\n%s /home %s %s %s %s\n%s\n' \
-  "`$BEGIN_MARKER" \
-  "`$HOME_MOUNT_SRC" \
-  "`$HOME_MOUNT_FSTYPE" \
-  "`$HOME_MOUNT_OPTS" \
-  "`$HOME_MOUNT_DUMP" \
-  "`$HOME_MOUNT_PASSNO" \
-  "`$END_MARKER" >> "`$FSTAB"
-
 mkdir -p /home
 if ! mountpoint -q /home; then
-  mount /home
+  mount -t $homeMountFsType -o $homeMountOpts $homeMountSrc /home
 fi
 "@
         if ($LASTEXITCODE -ne 0) {
-            throw "Failed to configure and mount /home. Fix the HomeMount setting in $configPath and retry."
+            throw "Failed to mount /home. Fix the HomeMount setting in $configPath and retry."
         }
     }
 

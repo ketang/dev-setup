@@ -20,7 +20,7 @@
       - libgbm1
       - libpango-1.0-0
       - libcairo2
-      - libcups2
+      - libcups2t64
       - libxkbcommon0
       - libatspi2.0-0t64
       # GStreamer (WebKit/video support)
@@ -58,7 +58,7 @@
 
 - name: Install Playwright CLI globally
   npm:
-    name: "@playwright/cli"
+    name: playwright
     global: true
     state: latest
 

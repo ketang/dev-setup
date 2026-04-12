@@ -24,8 +24,12 @@
     version: "{{ pnpm_version }}"
     state: present
 
-- name: Install OpenAI Codex CLI globally
-  npm:
-    name: "@openai/codex"
-    global: true
-    state: latest
+- name: Install OpenAI Codex CLI for user
+  shell: |
+    npm install -g @openai/codex@latest
+  environment:
+    npm_config_prefix: "/home/{{ user }}/.local"
+  args:
+    creates: "/home/{{ user }}/.local/bin/codex"
+  become: true
+  become_user: "{{ user }}"
