@@ -87,6 +87,7 @@ time they are created.
 | Role | What it provides |
 |---|---|
 | base | build-essential, git, curl, tmux, ripgrep, glow, jq, cmake, libicu-dev, locales |
+| homebrew | Homebrew in `/home/linuxbrew/.linuxbrew` with shell initialization, plus `rtk` |
 | docker | Docker Engine + docker-compose-plugin (not Docker Desktop) |
 | golang | Go (version in `vars/main.yml`), air, golangci-lint |
 | rust | Rust stable via rustup, libz3-dev, libclang-dev |
@@ -97,7 +98,7 @@ time they are created.
 | github-cli | GitHub CLI (`gh`) via the official apt repository |
 | ssh | OpenSSH server on configurable port |
 | netbird | NetBird mesh VPN agent |
-| project-tools | Claude CLI, beads issue tracker, doctl, OpenTofu |
+| project-tools | Claude CLI, beads issue tracker, `headroom-ai`, doctl, OpenTofu |
 | user | Git config, project directory, repo cloning via SSH |
 
 ## Nuke and rebuild
@@ -160,6 +161,7 @@ playbook.yml          Main playbook
 vars/main.yml         Version pins and defaults
 roles/
   base/               System packages, locale, timezone
+  homebrew/           Homebrew install + shell environment
   docker/             Docker Engine (not Desktop)
   golang/             Go + dev tools
   rust/               Rust toolchain + system libs
