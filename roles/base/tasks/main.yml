@@ -10,6 +10,7 @@
       - bind9-host
       - build-essential
       - curl
+      - file
       - wget
       - git
       - git-lfs
@@ -31,6 +32,7 @@
       - apt-transport-https
       - keychain
       - locales
+      - procps
       - wamerican
       - net-tools
       - socat

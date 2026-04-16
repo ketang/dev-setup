@@ -1,0 +1,36 @@
+- name: Ensure Homebrew prefix directories exist
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ user }}"
+    group: "{{ user }}"
+    mode: "0755"
+  loop:
+    - /home/linuxbrew
+    - /home/linuxbrew/.linuxbrew
+
+- name: Install Homebrew
+  shell: |
+    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  args:
+    creates: /home/linuxbrew/.linuxbrew/bin/brew
+  become: true
+  become_user: "{{ user }}"
+
+- name: Add Homebrew to system PATH
+  copy:
+    dest: /etc/profile.d/homebrew.sh
+    content: |
+      if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+      fi
+    mode: "0644"
+
+- name: Install rtk via Homebrew
+  shell: |
+    . /etc/profile.d/homebrew.sh
+    brew install rtk
+  args:
+    creates: /home/linuxbrew/.linuxbrew/bin/rtk
+  become: true
+  become_user: "{{ user }}"

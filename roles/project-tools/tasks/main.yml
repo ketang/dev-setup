@@ -18,6 +18,13 @@
   become: true
   become_user: "{{ user }}"
 
+- name: Install headroom-ai via pipx
+  command: pipx install headroom-ai
+  args:
+    creates: "/home/{{ user }}/.local/share/pipx/venvs/headroom-ai"
+  become: true
+  become_user: "{{ user }}"
+
 - name: Install project tool snaps
   community.general.snap:
     name:

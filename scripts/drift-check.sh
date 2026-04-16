@@ -32,6 +32,25 @@ report_modified() { modified+=("$1"); }
 
 # ---------- helpers ----------
 
+declare -a NPM_GLOBAL_PACKAGES=(
+    "@openai/codex"
+    "playwright"
+    "pnpm"
+)
+
+declare -a NPM_GLOBAL_IGNORED_PACKAGES=(
+    "corepack"
+    "npm"
+)
+
+declare -a PIPX_PACKAGES=(
+    "headroom-ai"
+)
+
+declare -a BREW_PACKAGES=(
+    "rtk"
+)
+
 apt_installed() {
     dpkg-query -W -f='${Status}\n' "$1" 2>/dev/null | grep -q '^install ok installed$'
 }
@@ -45,14 +64,49 @@ file_exists() { [ -e "$1" ]; }
 svc_active()  { systemctl is-active  --quiet "$1"; }
 svc_enabled() { systemctl is-enabled --quiet "$1" 2>/dev/null; }
 
+array_contains() {
+    local needle="$1"
+    shift
+    local item
+    for item in "$@"; do
+        [ "$item" = "$needle" ] && return 0
+    done
+    return 1
+}
+
+check_package_inventory() {
+    local manager="$1"
+    local declared_name="$2"
+    local installed_name="$3"
+    local ignored_name="$4"
+
+    local -n declared_packages="$declared_name"
+    local -n installed_packages="$installed_name"
+    local -n ignored_packages="$ignored_name"
+    local package
+
+    for package in "${declared_packages[@]}"; do
+        array_contains "$package" "${installed_packages[@]}" \
+            || report_missing "$manager package: $package"
+    done
+
+    for package in "${installed_packages[@]}"; do
+        if array_contains "$package" "${ignored_packages[@]}"; then
+            continue
+        fi
+        array_contains "$package" "${declared_packages[@]}" \
+            || report_extra "$manager package: $package"
+    done
+}
+
 # ---------- 1. apt packages ----------
 
 declare -a APT_PACKAGES=(
     # base
     bind9-dnsutils bind9-host build-essential curl wget git git-lfs unzip jq bc
-    htop tmux ripgrep fd-find make cmake pkg-config libicu-dev ca-certificates
+    file htop tmux ripgrep fd-find make cmake pkg-config libicu-dev ca-certificates
     gnupg lsb-release software-properties-common apt-transport-https keychain
-    locales wamerican net-tools socat snapd bubblewrap xauth x11-apps xvfb feh
+    locales procps wamerican net-tools socat snapd bubblewrap xauth x11-apps xvfb feh
     xdg-utils strace pipx
     # docker
     docker-ce docker-ce-cli containerd.io docker-compose-plugin
@@ -156,15 +210,35 @@ else
     report_missing "pnpm: not installed (declared v$PNPM_MAJOR)"
 fi
 
-# playwright declared as npm global
-npm_globals=$(npm ls -g --depth=0 --parseable 2>/dev/null || true)
-echo "$npm_globals" | grep -q '/playwright$' \
-    || report_missing "npm global: playwright"
+declare -a installed_npm_globals=()
+if command -v npm >/dev/null 2>&1; then
+    mapfile -t installed_npm_globals < <(
+        npm ls -g --depth=0 --json 2>/dev/null \
+            | jq -r '.dependencies // {} | keys[]' 2>/dev/null \
+            | sort -u
+    )
+else
+    report_missing "npm: not installed"
+fi
+check_package_inventory "npm" NPM_GLOBAL_PACKAGES installed_npm_globals NPM_GLOBAL_IGNORED_PACKAGES
 
 # ---------- 7. Python packages ----------
 
 echo "${C_CYA}Checking Python packages...${C_RST}"
 python3 -c 'import yaml' 2>/dev/null || report_missing "python: pyyaml"
+
+declare -a installed_pipx_packages=()
+declare -a pipx_ignored_packages=()
+if command -v pipx >/dev/null 2>&1; then
+    mapfile -t installed_pipx_packages < <(
+        pipx list --json 2>/dev/null \
+            | jq -r '.venvs | keys[]' 2>/dev/null \
+            | sort -u
+    )
+else
+    report_missing "pipx: not installed"
+fi
+check_package_inventory "pipx" PIPX_PACKAGES installed_pipx_packages pipx_ignored_packages
 
 # ---------- 8. Sysctl ----------
 
@@ -198,6 +272,7 @@ for f in \
     /etc/apt/keyrings/docker.asc \
     /etc/apt/keyrings/nodesource.asc \
     /etc/apt/keyrings/postgresql.asc \
+    /etc/profile.d/homebrew.sh \
     /etc/profile.d/go.sh \
     /etc/profile.d/wslg.sh \
     /etc/profile.d/wsl-ssh-agent.sh
@@ -267,6 +342,22 @@ if [ -x "$HOME_DIR/.local/bin/codex" ]; then
 else
     report_missing "codex: no user-local install at ~/.local/bin/codex"
 fi
+
+# Homebrew: expected at the supported Linux prefix with shellenv available.
+if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+    :
+else
+    report_missing "homebrew: /home/linuxbrew/.linuxbrew/bin/brew"
+fi
+
+declare -a installed_brew_packages=()
+declare -a brew_ignored_packages=()
+if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+    mapfile -t installed_brew_packages < <(
+        /home/linuxbrew/.linuxbrew/bin/brew list --formula 2>/dev/null | sort -u
+    )
+fi
+check_package_inventory "brew" BREW_PACKAGES installed_brew_packages brew_ignored_packages
 
 # ---------- 13. /home mount (optional, managed by Ansible fstab_entries) ----------
 
