@@ -21,6 +21,7 @@
       - tmux
       - ripgrep
       - fd-find
+      - fzf
       - make
       - cmake
       - pkg-config
