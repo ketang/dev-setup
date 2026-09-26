@@ -1,0 +1,19 @@
+- name: Install earlyoom
+  apt:
+    name: earlyoom
+    state: present
+
+- name: Configure earlyoom thresholds and kill preferences
+  copy:
+    src: earlyoom.default
+    dest: /etc/default/earlyoom
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart earlyoom
+
+- name: Enable earlyoom service
+  systemd:
+    name: earlyoom
+    enabled: true
+    state: started

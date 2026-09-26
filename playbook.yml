@@ -9,6 +9,7 @@
     - base
     - homebrew
     - docker
+    - earlyoom
     - golang
     - rust
     - nodejs

@@ -89,6 +89,7 @@ time they are created.
 | base | build-essential, git, curl, tmux, ripgrep, glow, jq, cmake, libicu-dev, locales |
 | homebrew | Homebrew in `/home/linuxbrew/.linuxbrew` with shell initialization, plus `rtk` |
 | docker | Docker Engine + docker-compose-plugin (not Docker Desktop) |
+| earlyoom | Host OOM guard (earlyoom) tuned for concurrent agent builds; kills build tooling before agent sessions |
 | golang | Go (version in `vars/main.yml`), air, golangci-lint |
 | rust | Rust stable via rustup, libz3-dev, libclang-dev |
 | nodejs | Node.js + pnpm |
@@ -163,6 +164,7 @@ roles/
   base/               System packages, locale, timezone
   homebrew/           Homebrew install + shell environment
   docker/             Docker Engine (not Desktop)
+  earlyoom/           earlyoom OOM guard + /etc/default/earlyoom
   golang/             Go + dev tools
   rust/               Rust toolchain + system libs
   nodejs/             Node.js + pnpm
