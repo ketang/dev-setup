@@ -1,0 +1,11 @@
+# /etc/default/earlyoom — host OOM guard for concurrent agent builds (2026-09-24)
+#
+# earlyoom acts only when BOTH available RAM and free swap are below the thresholds:
+#   -m 5,2   SIGTERM when available RAM <= 5% (~2.4 GB of 48 GB), SIGKILL at <= 2%
+#   -s 10,5  ... and free swap <= 10% (SIGTERM) / 5% (SIGKILL)
+# --prefer   raises the kill score of build/test/tooling processes (matched on comm name)
+# --avoid    lowers it for agent sessions (Claude Code's comm is its version, e.g. 2.1.280),
+#            infrastructure, and shells
+# (no quotes around the regexes: systemd word-splits $EARLYOOM_ARGS without quote handling)
+# -r 3600    log a memory report hourly (journalctl -u earlyoom)
+EARLYOOM_ARGS="-m 5,2 -s 10,5 -r 3600 --prefer ^(rustc|cargo|clippy-driver|build-script-bu|sccache|node|vitest|tsc|esbuild|chrome|chromium|headless_shell|rust-analyzer|gopls|golangci-lint|shatter.*)$ --avoid ^(claude|codex|[0-9]+[.][0-9]+[.][0-9]+|dockerd|containerd.*|postgres|minio|dolt|sshd|tmux.*|systemd.*|bash|init)$"

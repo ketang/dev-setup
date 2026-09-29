@@ -108,6 +108,8 @@ declare -a APT_PACKAGES=(
     gnupg lsb-release software-properties-common apt-transport-https keychain
     locales procps wamerican net-tools socat snapd bubblewrap xauth x11-apps xvfb feh
     xdg-utils strace pipx
+    # earlyoom
+    earlyoom
     # docker
     docker-ce docker-ce-cli containerd.io docker-compose-plugin
     # github-cli
@@ -256,10 +258,14 @@ fi
 # ---------- 9. Systemd services ----------
 
 echo "${C_CYA}Checking systemd services...${C_RST}"
-for svc in docker ssh postgresql netbird; do
+for svc in docker ssh postgresql netbird earlyoom; do
     svc_enabled "$svc" || report_missing "systemd: $svc not enabled"
     svc_active  "$svc" || report_missing "systemd: $svc not active"
 done
+# earlyoom config must match the role's managed file
+if ! cmp -s "$PROJECT_DIR/roles/earlyoom/files/earlyoom.default" /etc/default/earlyoom; then
+    report_modified "file: /etc/default/earlyoom differs from roles/earlyoom/files/earlyoom.default"
+fi
 # ssh.socket must be disabled (uses hardcoded port 22)
 if svc_enabled ssh.socket; then
     report_modified "systemd: ssh.socket is enabled (should be disabled)"

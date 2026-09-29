@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "command": [
+    "./scripts/land-work-verifier.py"
+  ],
+  "verified_noop": []
+}
