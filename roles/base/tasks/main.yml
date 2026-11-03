@@ -45,6 +45,8 @@
       - feh
       - xdg-utils
       - strace
+      - gdb
+      - valgrind
       - shellcheck
       - pipx
     state: present
