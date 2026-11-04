@@ -45,6 +45,10 @@ declare -a NPM_GLOBAL_IGNORED_PACKAGES=(
 
 declare -a PIPX_PACKAGES=(
     "headroom-ai"
+    "oci-cli"
+    "s3cmd"
+    "uv"
+    "virtme-ng"
 )
 
 declare -a BREW_PACKAGES=(

@@ -18,10 +18,16 @@
   become: true
   become_user: "{{ user }}"
 
-- name: Install headroom-ai via pipx
-  command: pipx install headroom-ai
+- name: Install pipx tools
+  command: pipx install {{ item }}
+  loop:
+    - headroom-ai
+    - oci-cli
+    - s3cmd
+    - uv
+    - virtme-ng
   args:
-    creates: "/home/{{ user }}/.local/share/pipx/venvs/headroom-ai"
+    creates: "/home/{{ user }}/.local/share/pipx/venvs/{{ item }}"
   become: true
   become_user: "{{ user }}"
 
